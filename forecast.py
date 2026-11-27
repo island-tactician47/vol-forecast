@@ -96,10 +96,11 @@ def make_days(main, df, path, fc):
             "prob_big": r(float((abs_z > BIG_MOVE_PCT / sig[k]).mean() * 100), 0),
             "prob_big_clim": r(float((abs_ret > BIG_MOVE_PCT).mean() * 100), 0),  # 平年値（比較用）
             "band95": r(tq[0][1] * sig[k], 3),  # その日1日の変動がこれを超えたら大外れ（95%）
+            "move68": r(tq[0][0] * sig[k], 2),  # その日1日の値動き幅（3回に2回はこの中、±%）
             "range_low": r(close * np.exp(-q_range * cum_sd[k] / 100), 2),
             "range_high": r(close * np.exp(q_range * cum_sd[k] / 100), 2),
         })
-    return days, lookback, sig_hist
+    return days, lookback, sig_hist, tq[0][0]
 
 
 def fit_models(df):
@@ -124,12 +125,12 @@ def forecast_one(key):
     want = MAIN_MODEL_BY_KEY.get(key, MAIN_MODEL)
     main_name = want if want in fitted else next(iter(fitted))
     main, fc, path = fitted[main_name]
-    days, lookback, sig_hist = make_days(main, df, path, fc)
+    days, lookback, sig_hist, q68 = make_days(main, df, path, fc)
 
     last_sig = float(sig_hist.iloc[-1])
     last_pct = float((lookback < last_sig).mean() * 100)
     hist = df.iloc[-HISTORY_DAYS:]
-    comparison = [{"model": n, "vol_ann_day1": r(np.sqrt(f[0]) * np.sqrt(TRADING_DAYS), 1),
+    comparison = [{"model": n, "move68_day1": r(q68 * np.sqrt(f[0]), 2), "vol_ann_day1": r(np.sqrt(f[0]) * np.sqrt(TRADING_DAYS), 1),
                    "vol_ann_avg": r(np.sqrt(f.mean()) * np.sqrt(TRADING_DAYS), 1)}
                   for n, (_, f, _) in fitted.items()]
     item = {
@@ -140,6 +141,7 @@ def forecast_one(key):
         "last_close": r(float(df["close"].iloc[-1]), 2),
         "last_return": r(float(df["ret"].iloc[-1]), 2),
         "today": {"sigma_daily": r(last_sig, 3), "vol_ann": r(last_sig * np.sqrt(TRADING_DAYS), 1),
+                  "move68": r(q68 * last_sig, 2),
                   "percentile": r(last_pct, 0), "weather": weather_of(last_pct)},
         "alert": alert_of(max(d["percentile"] for d in days)),
         "days": days,
@@ -156,7 +158,7 @@ def forecast_one(key):
     }
     d1 = days[0]
     print(f"  明日: {d1['weather']['icon']} {d1['weather']['label']}"
-          f"（年率 {d1['vol_ann']}%、過去{LOOKBACK_YEARS}年の{d1['percentile']:.0f}%点）"
+          f"（1日 ±{d1['move68']}%、過去{LOOKBACK_YEARS}年の{d1['percentile']:.0f}%点）"
           + (f"  【{item['alert']}】" if item["alert"] else ""), flush=True)
     return item
 

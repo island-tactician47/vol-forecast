@@ -33,7 +33,7 @@ def backfill(key, df):
         path_all = m.one_step(df.iloc[:e])
         for t in range(b - 1, min(e, n - 1)):    # 基準日 t（翌日以降の実績が1日以上ある日）
             sub = df.iloc[:t + 1]
-            days, _, _ = make_days(m, sub, path_all.iloc[:t + 1], m.forecast(sub, HORIZON))
+            days, _, _, _ = make_days(m, sub, path_all.iloc[:t + 1], m.forecast(sub, HORIZON))
             rows += archive_rows(key, m.name, sub.index[-1].strftime("%Y-%m-%d"),
                                  r(float(sub["close"].iloc[-1]), 2), days, "再現")
     return rows

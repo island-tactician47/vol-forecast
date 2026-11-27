@@ -14,15 +14,16 @@
         <div class="date">${d.date}（${d.weekday}）</div>
         <div class="icon">${d.weather.icon}</div>
         <div class="label">${d.weather.label}</div>
-        <div class="vol">${fmt(d.vol_ann)}%</div>
-        <div class="row">年率換算 ／ 1日 ±${fmt(d.sigma_daily, 2)}%</div>
+        <div class="row">その日の値動き</div>
+        <div class="vol">±${fmt(d.move68)}%</div>
+        <div class="row">3回に2回はこの幅に収まる</div>
         <div class="meter"><div style="width:${d.percentile}%"></div></div>
         <div class="row">過去の ${fmt(d.percentile, 0)}%点</div>
         <div class="rain">☔ 大荒れ確率 <b>${fmt(d.prob_big, 0)}%</b></div>
-        <div class="row">予想レンジ（68%）<br>${fmt(d.range_low, 0)} 〜 ${fmt(d.range_high, 0)}</div>
+        <div class="row">終値の予想範囲<br>${fmt(d.range_low, 0)} 〜 ${fmt(d.range_high, 0)}</div>
       </div>`).join("");
     const cmp = it.comparison.map(c => `<tr><td>${c.model}${c.model === it.model ? "（主）" : ""}</td>
-      <td>${fmt(c.vol_ann_day1)}%</td><td>${fmt(c.vol_ann_avg)}%</td></tr>`).join("");
+      <td>±${fmt(c.move68_day1, 2)}%</td><td>${fmt(c.vol_ann_day1)}%</td></tr>`).join("");
     const p = it.params;
     const params = p && p.beta_d != null ? `<p class="note">HAR-RV（翌日の係数）：日 β=${fmt(p.beta_d, 3)}　週 β=${fmt(p.beta_w, 3)}　月 β=${fmt(p.beta_m, 3)}
       ${p.beta_x != null ? `<br>前夜の先行市場（${it.exog}）の変動 β=${fmt(p.beta_x, 3)}　その下落分 β=${fmt(p.beta_xn, 3)}` : ""}</p>`
@@ -38,9 +39,9 @@
           <div>
             <h2>${it.name}　いまの空模様：${t.weather.label}（${t.weather.desc}）</h2>
             <div class="sub">${it.last_date} 終値 ${fmt(it.last_close, 2)}（前日比 ${it.last_return > 0 ? "+" : ""}${fmt(it.last_return, 2)}%）</div>
-            <div class="sub">明日は ${d1.weather.icon} ${d1.weather.label}の見込み</div>
+            <div class="sub">次の営業日は ${d1.weather.icon} ${d1.weather.label}の見込み（±${fmt(d1.move68)}%、終値 ${fmt(d1.range_low, 0)}〜${fmt(d1.range_high, 0)}）</div>
           </div>
-          <div><div class="sub">現在のボラ（年率）</div><div class="vol">${fmt(t.vol_ann)}%</div><div class="sub">過去の${fmt(t.percentile, 0)}%点</div></div>
+          <div><div class="sub">いまの1日の値動き</div><div class="vol">±${fmt(t.move68)}%</div><div class="sub">荒れ具合は過去の${fmt(t.percentile, 0)}%点</div></div>
         </div>
       </div>
       <div class="card"><h3 style="margin-top:0">週間予報（${F.horizon}営業日）</h3><div class="week">${days}</div>
@@ -49,7 +50,8 @@
         <p class="note">予想ボラ（オレンジ）は緑の点線（後から見た実際の荒れ具合）と比べてください。
         1日ごとの|変動|（棒）は、予想が正しくても大きくばらつきます（正規分布なら平均は約0.8σ、2σ超えも約5%）。</p></div>
       <div class="card"><details><summary>モデル比較・パラメータ</summary>
-        <table><tr><th>モデル</th><th>明日の予想ボラ（年率）</th><th>期間平均</th></tr>${cmp}</table>${params}
+        <table><tr><th>モデル</th><th>次の営業日の値動き</th><th>（参考）年率換算</th></tr>${cmp}</table>${params}
+        <p class="note">年率換算は「この荒れ具合が1年続いたら」という仮の数字で、プロの比較用の単位です。</p>
         <p class="note">データ ${it.n_days} 日分で推定。</p></details></div>`;
 
     const h = it.history;
