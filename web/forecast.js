@@ -13,6 +13,16 @@
     const grade = k => (tk[k] ? `<span class="grade" title="直近${tk[k].n}日の${k}日先：予想レンジ的中${fmt(tk[k].range_hit, 0)}%（理想68%）／大外れ${fmt(tk[k].exceed, 1)}%（理想5%）">${tk[k].grade}</span>` : "");
     const warns = (it.warnings || []).map(w => `<div class="warnbox">⚠ ${w}</div>`).join("");
     const conf = tk["1"] ? `<div class="conf">信頼度 ${grade(1)}　直近${tk["1"].n}日の1日先：予想レンジ的中 <b>${fmt(tk["1"].range_hit, 0)}%</b>（理想68%）・大外れ <b>${fmt(tk["1"].exceed, 1)}%</b>（理想5%）</div>` : "";
+    const tr = it.trend;
+    const td = k => (tr ? tr.days.find(x => x.k === k) : null);
+    const trendDay = k => { const t = td(k); return t ? `<div class="trend ${t.cls}">${t.arrow} 上がる確率 <b>${fmt(t.p_up * 100, 0)}%</b></div><div class="row">平年 ${fmt(t.base * 100, 0)}%・${t.label}</div>` : ""; };
+    const last = tr && td(F.horizon);
+    const trendHead = last ? `<div class="conf">方向の見立て <span class="trend ${last.cls}">${last.arrow} ${last.label}</span>（${F.horizon}営業日後に上がる確率 <b>${fmt(last.p_up * 100, 0)}%</b>、平年 ${fmt(last.base * 100, 0)}%）　当たり具合 <span class="grade">${tr.grade}</span> ${tr.grade === "△" ? "ほぼ当たらない（平年の上昇率と区別できない）" : "平年の上昇率より有意に良い"}</div>` : "";
+    const trendEval = tr && tr.eval && tr.eval.length ? `<details><summary>方向の見立ての当たり具合（直近3年の検証）</summary>
+        <table><tr><th>何日先</th><th>件数</th><th>的中率</th><th>平年の多数派</th><th>実際の上昇率</th><th>平年より良いか（t）</th></tr>
+        ${tr.eval.map(e => `<tr><td>${e.k}日先</td><td>${e.n}</td><td>${fmt(e.acc, 1)}%</td><td>${fmt(e.acc_base, 1)}%</td><td>${fmt(e.up_rate, 1)}%</td><td>${fmt(e.t, 2)}</td></tr>`).join("")}</table>
+        <p class="note">「平年の多数派」は、学習期間で多かった方（たいてい「上」）を毎回答えた場合の的中率です。これと同じくらいなら、方向の予想には中身がありません。
+        t が -2 以下なら、平年の上昇率だけで答えるより有意に良い（k日先の目標は重なるため補正済み）。株価指数は長い目では上がりやすいので、「上」と答えるだけでも5〜6割は当たります。</p></details>` : "";
     const ws = it.weather_scale;
     const wxScale = ws && ws.by === "move" && ws.bounds ? `<details><summary>天気の目安（この銘柄の1日の値動き）</summary>
         <table><tr><th>天気</th><th>予想の1日の値動き</th></tr>
@@ -35,6 +45,7 @@
         <div class="row">過去の ${fmt(d.percentile, 0)}%点</div>
         <div class="rain">☔ ±${fmt(d.big_pct, 1)}%超の確率 <b>${fmt(d.prob_big, 0)}%</b></div>
         <div class="row">平年 ${fmt(d.prob_big_clim, 0)}%</div>
+        ${trendDay(d.k)}
         ${grade(d.k) ? `<div class="conf">信頼度 ${grade(d.k)}</div>` : ""}
         <div class="row">終値の予想範囲<br>${fmt(d.range_low, 0)} 〜 ${fmt(d.range_high, 0)}</div>
       </div>`).join("");
@@ -57,13 +68,13 @@
             <h2>${it.name}　いまの空模様：${t.weather.label}（${t.weather.desc}）</h2>
             <div class="sub">${it.last_date} 終値 ${fmt(it.last_close, 2)}（前日比 ${it.last_return > 0 ? "+" : ""}${fmt(it.last_return, 2)}%）</div>
             <div class="sub">次の営業日は ${d1.weather.icon} ${d1.weather.label}の見込み（±${fmt(d1.move68)}%、終値 ${fmt(d1.range_low, 0)}〜${fmt(d1.range_high, 0)}）</div>
-            ${conf}
+            ${conf}${trendHead}
           </div>
           <div><div class="sub">いまの1日の値動き</div><div class="vol">±${fmt(t.move68)}%</div><div class="sub">荒れ具合は過去の${fmt(t.percentile, 0)}%点</div></div>
         </div>
       </div>
       <div class="card"><h3 style="margin-top:0">週間予報（${F.horizon}営業日）</h3><div class="week">${days}</div>
-        ${wxScale}${tiers}
+        ${wxScale}${tiers}${trendEval}
         <p class="note">日付は、その市場の営業日（土日と祝日を除く）です。臨時の休場は考慮していません。</p></div>
       <div class="card">
         <h3 style="margin-top:0">チャート</h3>

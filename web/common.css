@@ -63,3 +63,9 @@ header .reload:disabled { opacity: .7; }
 .conf b { color: var(--ink); }
 .grade { display: inline-block; min-width: 1.4em; text-align: center; font-weight: bold; color: var(--accent); }
 .day .conf { font-size: 11px; margin-top: 2px; }
+
+/* 方向の見立て（赤＝上、青＝下。ローソク足と同じ） */
+.trend.up { color: #d23c3c; }
+.trend.down { color: #2f6fb2; }
+.trend.flat { color: var(--sub); }
+.day .trend { font-size: 13px; margin-top: 4px; }

@@ -19,6 +19,7 @@ from config import (ALERT_IDX, ALERT_PCT, BAND_COVERAGE, BIG_MOVE_MAIN, BIG_MOVE
 from config import EXOG
 from data_io import display_name, list_datasets, load_prices, load_returns, r, write_web_data
 from market_cal import last_open_on_or_before, next_days
+import trend
 from models import TRADING_DAYS, build_models
 
 WEEKDAYS = "月火水木金土日"
@@ -182,6 +183,19 @@ def data_warnings(key, last_date, today=None):
     return out
 
 
+def trend_of(df):
+    """方向の見立て（k営業日後までに上がる確率）と、その当たり具合の検証。失敗しても予報本体は止めない。"""
+    try:
+        fc = trend.forecast_trend(df)
+        ev = trend.evaluate(df)
+    except Exception as e:
+        print(f"  方向の見立てに失敗: {type(e).__name__}: {e}")
+        return None
+    days = [{"k": x["k"], "p_up": r(x["p_up"], 4), "base": r(x["base"], 4), **trend.label_of(x["p_up"], x["base"])} for x in fc]
+    return {"days": days, "grade": trend.grade_of(ev), "band": trend.TREND_BAND if hasattr(trend, "TREND_BAND") else None,
+            "eval": [{"k": k, **{c: (r(v, 4) if isinstance(v, float) else v) for c, v in e.items()}} for k, e in ev.items()]}
+
+
 def fit_models(df):
     fitted = {}
     for m in build_models(df, HORIZON):
@@ -247,6 +261,7 @@ def forecast_one(key):
         "n_days": len(df),
         "big": {"main_mult": BIG_MOVE_MAIN, "main_pct": days[0]["big_pct"]},
         "warnings": data_warnings(key, df.index[-1]),
+        "trend": trend_of(df),
     }
     d1 = days[0]
     print(f"  明日: {d1['weather']['icon']} {d1['weather']['label']}"
