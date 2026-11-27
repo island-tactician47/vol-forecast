@@ -4,14 +4,17 @@
   fit(df)          : パラメータ推定
   one_step(df)     : 各日 t の分散予測（t-1 までの情報で作ったもの）を df と同じ index で返す
   forecast(df, h)  : df の最終日の翌営業日から h 日分の分散予測（%^2）を返す
+  multi_step(df, h): 各行 t について「t までの情報で作った t+1..t+h 日先の分散予測」を表（列 1..h）で返す
+                     （検証で k 日先の精度を測るため。1列目を1行ずらしたものが one_step と一致する）
 新しいモデルを足すときは同じ3メソッドを持つクラスを作り、build_models() に加える。
 """
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+from scipy.special import gammaln
 
-from config import EXOG_MODELS
-from data_io import has_exog, has_range
+from config import EXOG_MODELS, EXTRA_MODELS, SCALE_WINDOW
+from data_io import has_exog, has_iv, has_range
 
 TRADING_DAYS = 252
 
@@ -31,6 +34,10 @@ class HistVol:
 
     def forecast(self, df, h):
         return np.full(h, float((df["ret"].iloc[-self.window:] ** 2).mean()))
+
+    def multi_step(self, df, h):
+        v = (df["ret"] ** 2).rolling(self.window).mean()
+        return pd.DataFrame({k: v for k in range(1, h + 1)})
 
 
 def _ewma(r, lam):
@@ -58,6 +65,10 @@ class EWMA:
 
     def forecast(self, df, h):
         return np.full(h, _ewma(df["ret"].to_numpy(float), self.lam)[-1])
+
+    def multi_step(self, df, h):
+        v = pd.Series(_ewma(df["ret"].to_numpy(float), self.lam)[1:], index=df.index)
+        return pd.DataFrame({k: v for k in range(1, h + 1)})
 
 
 def _gjr_filter(params, r, x=None, xn=None):
@@ -177,32 +188,61 @@ class GJRGarch:
             v.append(omega + ex_k + p * v[-1])  # E[σ²_{t+k}] の漸化式
         return np.array(v)
 
+    def multi_step(self, df, h):
+        omega, p = self.params[1], self.persistence
+        if self.exog:
+            ex_k = (self.params[5] * df["x"].rolling(22, min_periods=1).mean()
+                    + self.params[6] * df["xn"].rolling(22, min_periods=1).mean()).to_numpy()
+        else:
+            ex_k = 0.0
+        v = self._filter(df)[1:]
+        cols = {1: v}
+        for k in range(2, h + 1):
+            v = omega + ex_k + p * v
+            cols[k] = v
+        return pd.DataFrame(cols, index=df.index)
+
 
 class HAR:
     """HAR-RV（Corsi 2009）。日・週・月の実現ボラで将来の実現ボラを回帰する。
 
     日足しかないので実現分散はParkinson推定量（高値・安値）で代用し、
     夜間の窓を含む終値ベースの水準に合うよう scale で補正する。
+    scale は直近 SCALE_WINDOW 日の（終値ベースの分散 / Parkinson）で毎日測り直す（固定値だと水準がずれる銘柄があるため）。
     log をとって回帰し、予測ごとに k 日先を直接推定する（direct方式）。
+    use_iv=True なら、インプライド・ボラティリティ（VIXなど）の水準も説明変数に加える（HAR-RV+IV）。
     """
-    name = "HAR-RV"
+    base_name = "HAR-RV"
 
-    def __init__(self, horizon=5):
+    def __init__(self, horizon=5, use_iv=False, scale_window=SCALE_WINDOW):
         self.horizon = horizon
+        self.use_iv = use_iv
+        self.scale_window = scale_window
+        self.name = "HAR-RV+IV" if use_iv else "HAR-RV"
 
-    @staticmethod
-    def _features(df):
+    def _features(self, df):
         rv = df["rv"]
         X = pd.DataFrame({
             "d": np.log(rv),
             "w": np.log(rv.rolling(5).mean()),
             "m": np.log(rv.rolling(22).mean()),
         })
-        if has_exog(df) and HAR.name in EXOG_MODELS:  # 翌日の寄り付き前に分かる先行市場の変動（HAR-X）
+        if has_exog(df) and self.base_name in EXOG_MODELS:  # 翌日の寄り付き前に分かる先行市場の変動（HAR-X）
             X["x"] = np.log(df["x_next"] + 0.01)
             X["xn"] = np.log(df["xn_next"] + 0.01)
+        if self.use_iv:
+            X["iv"] = df["iv"]
         X.insert(0, "const", 1.0)
         return X
+
+    def _scale_series(self, df):
+        """各行 t の scale（t までのデータだけで計算）。窓が足りない間は fit 時の全期間の値。"""
+        if not self.scale_window:
+            return np.full(len(df), self.scale)
+        w = self.scale_window
+        a = (df["ret"] ** 2).rolling(w, min_periods=w // 2).mean()
+        b = df["rv"].rolling(w, min_periods=w // 2).mean()
+        return (a / b).fillna(self.scale).to_numpy()
 
     def fit(self, df):
         rv = df["rv"]
@@ -215,30 +255,149 @@ class HAR:
             b, *_ = np.linalg.lstsq(d[X.columns].to_numpy(), d["y"].to_numpy(), rcond=None)
             resid = d["y"].to_numpy() - d[X.columns].to_numpy() @ b
             self.coefs[k] = (b, float(np.var(resid)))
+        self.scale_now = float(self._scale_series(df)[-1])
+        self._cols = list(X.columns)
         return self
 
     def info(self):
         b, _ = self.coefs[1]
-        names = ["const", "beta_d", "beta_w", "beta_m", "beta_x", "beta_xn"]
-        out = dict(zip(names, b))
-        out["scale"] = self.scale
+        names = {"const": "const", "d": "beta_d", "w": "beta_w", "m": "beta_m",
+                 "x": "beta_x", "xn": "beta_xn", "iv": "beta_iv"}
+        out = {names[c]: v for c, v in zip(self._cols, b)}
+        out["scale"] = self.scale_now
         return out
 
-    def _predict(self, X, k):
+    def _predict(self, X, k, sc):
         b, s2 = self.coefs[k]
-        return self.scale * np.exp(X.to_numpy() @ b + 0.5 * s2)  # 対数正規のバイアス補正
+        return sc * np.exp(X.to_numpy() @ b + 0.5 * s2)  # 対数正規のバイアス補正
 
     def one_step(self, df):
         X = self._features(df)
-        return pd.Series(self._predict(X, 1), index=df.index).shift(1)
+        return pd.Series(self._predict(X, 1, self._scale_series(df)), index=df.index).shift(1)
+
+    def multi_step(self, df, h):
+        X, sc = self._features(df), self._scale_series(df)
+        return pd.DataFrame({k: self._predict(X, k, sc) for k in range(1, h + 1)}, index=df.index)
 
     def forecast(self, df, h):
-        X = self._features(df).iloc[[-1]]
-        return np.array([float(self._predict(X, k)[0]) for k in range(1, h + 1)])
+        X, sc = self._features(df).iloc[[-1]], self._scale_series(df)[-1:]
+        return np.array([float(self._predict(X, k, sc)[0]) for k in range(1, h + 1)])
+
+
+def _gjr_t_nll(params, r):
+    mu, omega, alpha, gamma, beta, nu = params
+    if omega <= 0 or alpha < 0 or beta < 0 or alpha + gamma < 0 or alpha + 0.5 * gamma + beta >= 0.9999 or nu <= 2.05:
+        return 1e10
+    s2 = _gjr_filter(params[:5], r)[:-1]
+    if np.any(s2 <= 0):
+        return 1e10
+    e2 = (r - mu) ** 2 / s2
+    n = len(r)
+    const = n * (gammaln((nu + 1) / 2) - gammaln(nu / 2) - 0.5 * np.log(np.pi * (nu - 2)))
+    return -const + 0.5 * float(np.sum(np.log(s2))) + 0.5 * (nu + 1) * float(np.sum(np.log1p(e2 / (nu - 2))))
+
+
+class GJRGarchT(GJRGarch):
+    """GJR-GARCH(1,1) の誤差をスチューデントt分布にしたもの（裾の厚さをパラメータ ν で表す）。"""
+    name = "GJR-t"
+
+    def fit(self, df):
+        r = df["ret"].to_numpy(float)
+        self.exog = False
+        v = float(np.var(r))
+        x0 = [float(np.mean(r)), v * 0.05, 0.03, 0.08, 0.88, 8.0]
+        bounds = [(-1, 1), (1e-8, 10 * v), (0, 0.5), (-0.5, 0.5), (0, 0.9999), (2.1, 60)]
+        cons = [{"type": "ineq", "fun": lambda p: 0.9999 - (p[2] + 0.5 * p[3] + p[4])},
+                {"type": "ineq", "fun": lambda p: p[2] + p[3]}]
+        res = minimize(_gjr_t_nll, x0, args=(r,), method="SLSQP", bounds=bounds, constraints=cons,
+                       options={"maxiter": 500})
+        ok = np.isfinite(res.fun) and res.fun < 1e9
+        if not ok:
+            print(f"  {self.name}: 推定が収束しませんでした（初期値を使用）")
+        self.params = res.x if ok else np.array(x0)
+        self._x_mean = 0.0
+        self.nu = float(self.params[5])
+        return self
+
+    def info(self):
+        out = super().info()
+        out["nu"] = self.nu
+        return out
+
+
+def _egarch_filter(params, r):
+    """log σ²_t = ω + β·log σ²_{t-1} + α(|z|−√(2/π)) + γ·z。戻り値は長さ len(r)+1 の log σ²（最後は翌日分）。"""
+    mu, omega, alpha, gamma, beta = params
+    c = np.sqrt(2 / np.pi)
+    l = np.empty(len(r) + 1)
+    prev = float(np.log(np.mean(r[:20] ** 2) + 1e-8))   # 初期値は最初の20日から（全期間を使うと将来の情報が混ざるため）
+    l[0] = prev
+    for t, e in enumerate((r - mu).tolist()):
+        z = e / np.exp(0.5 * prev)
+        prev = omega + beta * prev + alpha * (abs(z) - c) + gamma * z
+        prev = min(max(prev, -25.0), 25.0)
+        l[t + 1] = prev
+    return l
+
+
+def _egarch_nll(params, r):
+    if abs(params[4]) >= 0.9999:
+        return 1e10
+    l = _egarch_filter(params, r)[:-1]
+    e = r - params[0]
+    return 0.5 * float(np.sum(l + e * e / np.exp(l)))
+
+
+class EGARCH:
+    """EGARCH(1,1)（正規分布の擬似最尤）。分散ではなく対数分散をモデル化するので、符号の制約が不要。γ<0 なら下落でボラが上がる。"""
+    name = "EGARCH"
+    SIMS = 300
+
+    def fit(self, df):
+        r = df["ret"].to_numpy(float)
+        x0 = [float(np.mean(r)), 0.01, 0.10, -0.05, 0.97]
+        bounds = [(-1, 1), (-1, 1), (0, 1), (-1, 1), (0, 0.9999)]
+        res = minimize(_egarch_nll, x0, args=(r,), method="SLSQP", bounds=bounds, options={"maxiter": 400})
+        ok = np.isfinite(res.fun) and res.fun < 1e9
+        if not ok:
+            print(f"  {self.name}: 推定が収束しませんでした（初期値を使用）")
+        self.params = res.x if ok else np.array(x0)
+        return self
+
+    def mean(self):
+        return float(self.params[0])
+
+    def info(self):
+        mu, omega, a, g, b = self.params
+        return {"mu": mu, "omega": omega, "alpha": a, "gamma": g, "beta": b, "persistence": b}
+
+    def one_step(self, df):
+        return pd.Series(np.exp(_egarch_filter(self.params, df["ret"].to_numpy(float))[:-1]), index=df.index)
+
+    def multi_step(self, df, h):
+        """2日目以降は、標準化残差を正規乱数で何通りか流して E[σ²] を求める（乱数は固定で、全行で同じ列を使う）。"""
+        _, omega, alpha, gamma, beta = self.params
+        c = np.sqrt(2 / np.pi)
+        l = _egarch_filter(self.params, df["ret"].to_numpy(float))[1:]   # 行 t に対する翌日の log σ²
+        cols = {1: np.exp(l)}
+        rng = np.random.default_rng(12345)
+        ls = np.repeat(l[:, None], self.SIMS, axis=1)
+        for k in range(2, h + 1):
+            z = rng.standard_normal(self.SIMS)[None, :]   # 全行で同じ乱数列（データの長さに依存しない）
+            ls = np.clip(omega + beta * ls + alpha * (np.abs(z) - c) + gamma * z, -25.0, 25.0)
+            cols[k] = np.exp(ls).mean(axis=1)
+        return pd.DataFrame(cols, index=df.index)
+
+    def forecast(self, df, h):
+        return self.multi_step(df, h).iloc[-1].to_numpy(float)
 
 
 def build_models(df, horizon):
     models = [GJRGarch(), EWMA(), HistVol()]
+    if EXTRA_MODELS:  # 比較用（主モデルは config.MAIN_MODEL のまま）
+        models += [GJRGarchT(), EGARCH()]
     if has_range(df):
         models.append(HAR(horizon))
+        if EXTRA_MODELS and has_iv(df):
+            models.append(HAR(horizon, use_iv=True))
     return models

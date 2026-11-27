@@ -5,17 +5,22 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from config import DATA_DIR, TICKERS, WEB_DATA_DIR
+from config import (DATA_DIR, DRIVER_ONLY, FX_BAR_COMPLETE_UTC_HOUR, FX_KEYS, IMPLIED, TICKERS,
+                    WEB_DATA_DIR)
 
 
 def display_name(key):
     return TICKERS[key][0] if key in TICKERS else key
 
 
-def list_datasets():
-    """data/ にあるCSVのキー（拡張子なしファイル名）一覧。"""
+def list_datasets(targets=True):
+    """data/ にあるCSVのキー（拡張子なしファイル名）一覧。
+
+    targets=True なら予報の対象だけ（説明変数専用の DRIVER_ONLY は除く）。
+    """
     DATA_DIR.mkdir(exist_ok=True)
-    return sorted(p.stem for p in DATA_DIR.glob("*.csv"))
+    keys = sorted(p.stem for p in DATA_DIR.glob("*.csv"))
+    return [k for k in keys if k not in DRIVER_ONLY] if targets else keys
 
 
 def _find(columns, candidates):
@@ -52,7 +57,21 @@ def load_prices(key):
         if c is not None:
             out[name] = pd.to_numeric(raw[c], errors="coerce")
     out = out.dropna(subset=["close"])
-    return out[out["close"] > 0]
+    out = out[out["close"] > 0]
+    return drop_incomplete(out, key)
+
+
+def drop_incomplete(px, key, now=None):
+    """24時間取引の銘柄で、まだ終わっていない「今日」の足（高値・安値・終値が途中の値）を捨てる。
+
+    UTC の今日の日付の足が最終行で、UTC の時刻が FX_BAR_COMPLETE_UTC_HOUR より前なら途中とみなす。
+    """
+    if key not in FX_KEYS or px.empty:
+        return px
+    now = now or datetime.utcnow()
+    if px.index[-1].date() == now.date() and now.hour < FX_BAR_COMPLETE_UTC_HOUR:
+        return px.iloc[:-1]
+    return px
 
 
 def make_returns(px):
@@ -103,7 +122,28 @@ def load_returns(key, with_exog=True):
     drv_key = EXOG.get(key)
     if with_exog and drv_key and (DATA_DIR / f"{drv_key}.csv").exists():
         df = add_exog(df, make_returns(load_prices(drv_key)))
+    iv_key = IMPLIED.get(key)
+    if with_exog and iv_key and (DATA_DIR / f"{iv_key}.csv").exists():
+        df = add_implied(df, load_prices(iv_key))
     return df
+
+
+def add_implied(df, vix_px):
+    """インプライド・ボラティリティ指数（VIXなど）の水準を、日次分散(%^2)の対数として列 iv に足す。
+
+    その日の引け時点で分かっている値（同じ日付を含む）。VIX=20 は年率20% → 日次分散 20^2/252。
+    """
+    s = (vix_px["close"] ** 2 / 252).rename("iv_var")
+    m = pd.merge_asof(pd.DataFrame({"date": df.index}), s.reset_index().rename(columns={s.index.name or "index": "vdate"}),
+                      left_on="date", right_on="vdate", direction="backward")
+    out = df.copy()
+    out["iv"] = np.log(m["iv_var"].to_numpy())
+    out["iv"] = out["iv"].ffill().bfill()
+    return out
+
+
+def has_iv(df):
+    return "iv" in df and df["iv"].notna().all()
 
 
 def has_exog(df):

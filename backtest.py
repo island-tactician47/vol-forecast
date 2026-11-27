@@ -6,6 +6,10 @@
 - 95%区間の外れ率（理想は5%）：天気予報の「当たり具合」に相当
 - BENCHMARK との差の Diebold-Mariano 検定（Newey-West）
 - 事前固定の合格基準（config.ACCEPT_WIN_RATIO）で判定し、試行を results/backtest_log.csv に記録
+  （合否は従来どおり1日先の成績で判定する。基準は変えていない）
+- 2〜HORIZON 日先の予測も、同じ手順（各モデルの multi_step）で測り、by_k に記録する。
+  k日先の予測は「t日までの情報で作った t+k 日の1日分の分散」で、損失は t+k 日の r² との QLIKE / MSE。
+  パラメータは検証ブロックの先頭までのデータで推定したもの（対象日は含まない）。
 """
 from datetime import datetime
 
@@ -13,7 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from config import (ACCEPT_WIN_RATIO, BENCHMARK, DM_LAG, LOOKBACK_YEARS, MAIN_MODEL, MIN_DAYS, REFIT_DAYS,
+from config import (ACCEPT_WIN_RATIO, BENCHMARK, DM_LAG, HORIZON, LOOKBACK_YEARS, MAIN_MODEL, MIN_DAYS, REFIT_DAYS,
                     RESULT_DIR, TEST_YEARS)
 from data_io import display_name, list_datasets, load_returns, r, write_web_data
 from forecast import realized_centered
@@ -36,6 +40,33 @@ def dm_test(d, lag):
     return stat, 2 * (1 - norm.cdf(abs(stat)))
 
 
+def horizon_table(preds, multi, test, r2):
+    """k=1..HORIZON 日先の QLIKE・MSE と、基準モデルとの DM 検定。k=1 は one_step の予測を使う。"""
+    out = []
+    for k in range(1, HORIZON + 1):
+        losses, rows = {}, []
+        for name in preds:
+            p = preds[name] if k == 1 else multi.get(name, {}).get(k)
+            if p is None:
+                continue
+            h = p.reindex(test.index).to_numpy()
+            ok = np.isfinite(h) & (h > 0)
+            ql = np.where(ok, np.log(np.where(ok, h, 1)) + r2 / np.where(ok, h, 1), np.nan)
+            losses[name] = ql
+            rows.append({"model": name, "qlike": float(np.nanmean(ql)), "mse": float(np.nanmean(np.where(ok, (r2 - h) ** 2, np.nan)))})
+        bench = losses.get(BENCHMARK)
+        for row in rows:
+            if bench is not None and row["model"] != BENCHMARK:
+                row["dm_stat"], row["dm_p"] = dm_test(losses[row["model"]] - bench, DM_LAG)
+            else:
+                row["dm_stat"], row["dm_p"] = np.nan, np.nan
+        rows.sort(key=lambda x: x["qlike"])
+        q = {row["model"]: row["qlike"] for row in rows}
+        out.append({"k": k, "main_wins": bool(MAIN_MODEL in q and BENCHMARK in q and q[MAIN_MODEL] < q[BENCHMARK]),
+                    "rows": [{c: (r(v, 4) if isinstance(v, (float, np.floating)) else v) for c, v in row.items()} for row in rows]})
+    return out
+
+
 def backtest_one(key):
     df = load_returns(key)
     n = len(df)
@@ -44,14 +75,17 @@ def backtest_one(key):
         print(f"  データ不足でスキップ（{n}日）")
         return None
 
-    preds, q95s = {}, {}
+    preds, q95s, multi = {}, {}, {}
     for b in range(start, n, REFIT_DAYS):
         e = min(b + REFIT_DAYS, n)
-        for m in build_models(df, 1):
+        for m in build_models(df, HORIZON):
             try:
                 m.fit(df.iloc[:b])
                 p_all = m.one_step(df.iloc[:e])
                 p = p_all.iloc[b:e]
+                ms = m.multi_step(df.iloc[:e], HORIZON)
+                for k in range(2, HORIZON + 1):  # k日先：行 t の k日先予測を、対象日 t+k に合わせてずらす
+                    multi.setdefault(m.name, {}).setdefault(k, []).append(ms[k].shift(k).iloc[b:e])
                 # 学習期間の標準化残差から95%点を求める（正規分布の1.96の代わり）
                 mu = m.mean() if hasattr(m, "mean") else 0.0
                 z = ((df["ret"].iloc[:b] - mu) / np.sqrt(p_all.iloc[:b])).abs()
@@ -64,6 +98,7 @@ def backtest_one(key):
             q95s.setdefault(m.name, []).append(q95)
     preds = {k: pd.concat(v) for k, v in preds.items()}
     q95s = {k: pd.concat(v) for k, v in q95s.items()}
+    multi = {nm: {k: pd.concat(v) for k, v in d.items()} for nm, d in multi.items()}
 
     test = df.iloc[start:]
     r2 = (test["ret"] ** 2).to_numpy()
@@ -85,6 +120,7 @@ def backtest_one(key):
             row["dm_stat"], row["dm_p"] = np.nan, np.nan
     rows.sort(key=lambda x: x["qlike"])
 
+    by_k = horizon_table(preds, multi, test, r2)
     q = {row["model"]: row["qlike"] for row in rows}
     win = MAIN_MODEL in q and BENCHMARK in q and q[MAIN_MODEL] < q[BENCHMARK]
     for row in rows:
@@ -95,14 +131,14 @@ def backtest_one(key):
     return {
         "key": key, "name": display_name(key),
         "test_start": test.index[0].strftime("%Y-%m-%d"), "test_end": test.index[-1].strftime("%Y-%m-%d"),
-        "n_test": len(test), "main_wins": bool(win),
+        "n_test": len(test), "main_wins": bool(win), "by_k": by_k,
         "rows": [{k: (r(v, 4) if isinstance(v, (float, np.floating)) else v) for k, v in row.items()} for row in rows],
         "chart": {
             "dates": [d.strftime("%Y-%m-%d") for d in chart.index],
             "abs_ret": [r(abs(x), 3) for x in chart["ret"]],
             "realized": [r(x, 3) for x in realized_centered(df["ret"]).reindex(chart.index)],
             "series": {name: [r(np.sqrt(x), 3) if x and x > 0 else None for x in p.reindex(chart.index)]
-                       for name, p in preds.items()},
+                       for name, p in preds.items() if name in {MAIN_MODEL, BENCHMARK, rows[0]["model"]}},
         },
     }
 
@@ -131,10 +167,16 @@ def main():
     verdict = (f"{MAIN_MODEL} が {BENCHMARK} に勝った銘柄：{wins}/{len(items)}"
                f"（基準 {ACCEPT_WIN_RATIO:.0%} 以上）→ {'合格' if passed else '不合格'}")
     print(verdict)
+    for k in range(1, HORIZON + 1):  # 参考：k日先でも主モデルが基準に勝ったか（合否には使わない）
+        w = sum(next(x for x in it["by_k"] if x["k"] == k)["main_wins"] for it in items)
+        print(f"  {k}日先：{MAIN_MODEL} が {BENCHMARK} に勝った銘柄 {w}/{len(items)}")
+    verdict_k = [{"k": k, "wins": int(sum(next(x for x in it["by_k"] if x["k"] == k)["main_wins"] for it in items)),
+                  "n": len(items)} for k in range(1, HORIZON + 1)]
 
     write_web_data("backtest.js", "BACKTEST", {
         "main_model": MAIN_MODEL, "benchmark": BENCHMARK, "test_years": TEST_YEARS,
-        "refit_days": REFIT_DAYS, "verdict": verdict, "passed": passed, "items": items,
+        "refit_days": REFIT_DAYS, "verdict": verdict, "passed": passed, "verdict_k": verdict_k,
+        "horizon": HORIZON, "items": items,
     })
     RESULT_DIR.mkdir(exist_ok=True)
     pd.DataFrame([{"銘柄": it["name"], **row} for it in items for row in it["rows"]]).to_csv(

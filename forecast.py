@@ -3,18 +3,21 @@
 
 天気の決め方：MAIN_MODEL の予想ボラが、過去 LOOKBACK_YEARS 年の同モデルの
 ボラの中で何パーセンタイルにあたるか（＝いつもと比べてどれくらい荒れそうか）。
-「大荒れ確率」は、モデルの標準化残差の経験分布から |1日の変動| > BIG_MOVE_PCT となる確率。
+「大荒れ確率」は、モデルの標準化残差の経験分布から |1日の変動| が「その銘柄の普段の1日の標準偏差の BIG_MOVE_MAIN 倍」
+を超える確率（銘柄ごとに基準が違う。段階は BIG_MOVE_TIERS）。
+予報の日付は、その市場の営業日（market_cal.py）。データが古いときは警告を付ける。
 """
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
-from config import (ALERT_PCT, BAND_COVERAGE, BIG_MOVE_PCT, CANDLE_DAYS, HORIZON, LOOKBACK_YEARS,
-                    MAIN_MODEL, MAIN_MODEL_BY_KEY, MIN_DAYS, RANGE_COVERAGE, REALIZED_WINDOW, RESULT_DIR, WARNING_PCT,
-                    TAIL_FLOOR, WEATHER)
+from config import (ALERT_PCT, BAND_COVERAGE, BIG_MOVE_MAIN, BIG_MOVE_PCT_BY_KEY, BIG_MOVE_TIERS, CANDLE_DAYS,
+                    HORIZON, LOOKBACK_YEARS, MAIN_MODEL, MAIN_MODEL_BY_KEY, MARKET_CAL, MIN_DAYS, RANGE_COVERAGE,
+                    REALIZED_WINDOW, RESULT_DIR, STALE_WARN, WARNING_PCT, TAIL_FLOOR, WEATHER)
 from config import EXOG
 from data_io import display_name, list_datasets, load_prices, load_returns, r, write_web_data
+from market_cal import last_open_on_or_before, next_days
 from models import TRADING_DAYS, build_models
 
 WEEKDAYS = "月火水木金土日"
@@ -66,7 +69,14 @@ def tail_quantiles(df, path, mu, h):
     return out
 
 
-def make_days(main, df, path, fc):
+def big_thresholds(key, ret_sd):
+    """「大荒れ」の基準（1日の変動の%）。段階 {倍数: %} と、代表値の%。銘柄ごとの普段の標準偏差が単位。"""
+    tiers = {m: round(m * ret_sd, 2) for m in BIG_MOVE_TIERS}
+    main_pct = BIG_MOVE_PCT_BY_KEY.get(key) or round(BIG_MOVE_MAIN * ret_sd, 2)
+    return tiers, main_pct
+
+
+def make_days(main, df, path, fc, key=None):
     """基準日（df の最終日）時点の予報を作る。df・path は基準日までのデータだけを渡すこと。"""
     sig_hist = np.sqrt(path.dropna())
     lookback = sig_hist.iloc[-LOOKBACK_YEARS * TRADING_DAYS:].to_numpy()
@@ -75,11 +85,13 @@ def make_days(main, df, path, fc):
     abs_z = np.abs(z[-LOOKBACK_YEARS * TRADING_DAYS:])
     abs_ret = df["ret"].abs().iloc[-LOOKBACK_YEARS * TRADING_DAYS:]
     tq = tail_quantiles(df, path, mu, len(fc))
+    ret_sd = float(df["ret"].iloc[-LOOKBACK_YEARS * TRADING_DAYS:].std())
+    tiers, big_pct = big_thresholds(key, ret_sd)
 
     sig = np.sqrt(fc)
     cum_sd = np.sqrt(np.cumsum(fc))
     close = float(df["close"].iloc[-1])
-    dates = pd.bdate_range(df.index[-1] + pd.Timedelta(days=1), periods=len(fc))  # 祝日は未考慮
+    dates = next_days(df.index[-1], len(fc), MARKET_CAL.get(key))  # その市場の営業日（祝日を除く）
     days = []
     for k in range(len(fc)):
         pct = float((lookback < sig[k]).mean() * 100)
@@ -93,14 +105,44 @@ def make_days(main, df, path, fc):
             "vol_ann": r(sig[k] * np.sqrt(TRADING_DAYS), 1),
             "percentile": r(pct, 0),
             "weather": weather_of(pct),
-            "prob_big": r(float((abs_z > BIG_MOVE_PCT / sig[k]).mean() * 100), 0),
-            "prob_big_clim": r(float((abs_ret > BIG_MOVE_PCT).mean() * 100), 0),  # 平年値（比較用）
+            "big_pct": big_pct,  # 「大荒れ」とみなす1日の変動幅（%）。銘柄ごと
+            "prob_big": r(float((abs_z > big_pct / sig[k]).mean() * 100), 0),
+            "prob_big_clim": r(float((abs_ret > big_pct).mean() * 100), 0),  # 平年値（比較用）
+            "prob_tiers": [{"mult": m, "pct": v, "prob": r(float((abs_z > v / sig[k]).mean() * 100), 0),
+                            "clim": r(float((abs_ret > v).mean() * 100), 0)} for m, v in tiers.items()],
             "band95": r(tq[0][1] * sig[k], 3),  # その日1日の変動がこれを超えたら大外れ（95%）
             "move68": r(tq[0][0] * sig[k], 2),  # その日1日の値動き幅（3回に2回はこの中、±%）
             "range_low": r(close * np.exp(-q_range * cum_sd[k] / 100), 2),
             "range_high": r(close * np.exp(q_range * cum_sd[k] / 100), 2),
         })
     return days, lookback, sig_hist, tq[0][0]
+
+
+def expected_last_date(key, today=None):
+    """今日の前日以前で最も新しい営業日。日足の最終日がこれより古ければ、更新が1営業日以上抜けている。"""
+    today = pd.Timestamp(today or datetime.now().date())
+    return last_open_on_or_before(MARKET_CAL.get(key), today - pd.Timedelta(days=1))
+
+
+def data_warnings(key, last_date, today=None):
+    """データの鮮度の警告（文字列のリスト）。空なら問題なし。"""
+    if not STALE_WARN:
+        return []
+    out = []
+    exp = expected_last_date(key, today)
+    if pd.Timestamp(last_date) < exp:
+        out.append(f"{display_name(key)}のデータが古い可能性があります（最終 {pd.Timestamp(last_date):%m/%d}、期待 {exp:%m/%d} 以降）。")
+    drv = EXOG.get(key)
+    if drv:
+        try:
+            dl = load_prices(drv).index[-1]
+            dexp = expected_last_date(drv, today)
+            if dl < dexp:
+                out.append(f"{display_name(key)}の予報に使う先行市場（{display_name(drv)}）のデータが古い可能性があります"
+                           f"（最終 {dl:%m/%d}、期待 {dexp:%m/%d} 以降）。")
+        except Exception:
+            pass
+    return out
 
 
 def fit_models(df):
@@ -125,7 +167,7 @@ def forecast_one(key):
     want = MAIN_MODEL_BY_KEY.get(key, MAIN_MODEL)
     main_name = want if want in fitted else next(iter(fitted))
     main, fc, path = fitted[main_name]
-    days, lookback, sig_hist, q68 = make_days(main, df, path, fc)
+    days, lookback, sig_hist, q68 = make_days(main, df, path, fc, key)
 
     last_sig = float(sig_hist.iloc[-1])
     last_pct = float((lookback < last_sig).mean() * 100)
@@ -163,11 +205,15 @@ def forecast_one(key):
             "open": col("open", cs), "high": col("high", cs), "low": col("low", cs),
         },
         "n_days": len(df),
+        "big": {"main_mult": BIG_MOVE_MAIN, "main_pct": days[0]["big_pct"]},
+        "warnings": data_warnings(key, df.index[-1]),
     }
     d1 = days[0]
     print(f"  明日: {d1['weather']['icon']} {d1['weather']['label']}"
           f"（1日 ±{d1['move68']}%、過去{LOOKBACK_YEARS}年の{d1['percentile']:.0f}%点）"
           + (f"  【{item['alert']}】" if item["alert"] else ""), flush=True)
+    for w in item["warnings"]:
+        print(f"  警告: {w}", flush=True)
     return item
 
 
@@ -178,6 +224,7 @@ def archive_rows(key, model, base_date, base_close, days, source):
              "target_date_est": d["date_iso"], "sigma_daily": d["sigma_daily"],
              "percentile": d["percentile"], "weather_idx": d["weather"]["idx"],
              "prob_big": d["prob_big"], "prob_big_clim": d["prob_big_clim"], "band95": d["band95"],
+             "big_pct": d.get("big_pct"),
              "range_low": d["range_low"], "range_high": d["range_high"]} for d in days]
 
 
@@ -232,7 +279,8 @@ def main():
 
     write_web_data("forecast.js", "FORECAST", {
         "horizon": HORIZON, "main_model": MAIN_MODEL, "lookback_years": LOOKBACK_YEARS,
-        "big_move_pct": BIG_MOVE_PCT, "realized_window": REALIZED_WINDOW, "items": items,
+        "big_move_mult": BIG_MOVE_MAIN, "big_move_tiers": list(BIG_MOVE_TIERS),
+        "realized_window": REALIZED_WINDOW, "warnings": [w for it in items for w in it["warnings"]], "items": items,
     })
     save_archive(items)
     print(f"完了：{len(items)}銘柄。ランチャーの「予報ページ」で表示できます。")

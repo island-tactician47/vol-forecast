@@ -7,7 +7,9 @@
   const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : NaN);
   const wx = i => (i == null ? "" : `<span class="icon">${W[i].icon}</span>${W[i].label}`);
   document.getElementById("meta").textContent =
-    `作成 ${A.generated_at} ／ モデル ${A.main_model} ／ 大荒れ＝1日で±${BIG}%超`;
+    `作成 ${A.generated_at} ／ モデル ${A.main_model} ／ 大荒れ＝その銘柄の普段の変動の約2倍超（古い記録は±${BIG}%）`;
+  const bigOf = x => (x.bp != null ? x.bp : BIG);   // 予報した時点の「大荒れ」の基準（行ごと）
+  const warnHtml = (A.warnings || []).map(w => `<div class="warnbox">⚠ ${w}</div>`).join("");
 
   const kSel = document.getElementById("kSel"), src = document.getElementById("src");
   for (let k = 1; k <= A.horizon; k++) kSel.add(new Option(`${k}営業日先${k === 1 ? "（翌日）" : ""}`, k));
@@ -27,7 +29,7 @@
     const done = rows.filter(x => x.ar != null);
     const c = document.getElementById("content");
     if (!done.length) {
-      c.innerHTML = `<div class="card empty">この条件で答えが出た予報はまだありません（答え待ち ${rows.length} 件）。</div>`;
+      c.innerHTML = warnHtml + `<div class="card empty">この条件で答えが出た予報はまだありません（答え待ち ${rows.length} 件）。</div>`;
       if (rows.length) c.innerHTML += table(rows);
       return;
     }
@@ -39,7 +41,7 @@
     const inRange = mean(done.map(x => (x.lo <= x.cl && x.cl <= x.hi ? 1 : 0)));
     const band = x => (x.b9 != null ? x.b9 : 1.96 * x.sg);  // 実績分布の95%ライン（古い記録は1.96σ）
     const exceed = mean(done.map(x => (Math.abs(x.ar) > band(x) ? 1 : 0)));
-    const y = done.map(x => (Math.abs(x.ar) > BIG ? 1 : 0));
+    const y = done.map(x => (Math.abs(x.ar) > bigOf(x) ? 1 : 0));
     const brier = mean(done.map((x, i) => (x.pb / 100 - y[i]) ** 2));
     const brierClim = mean(done.map((x, i) => ((x.cb ?? 0) / 100 - y[i]) ** 2));
     const skill = 1 - brier / brierClim;
@@ -47,7 +49,7 @@
     // ---- 予報天気ごとの実際 ----
     const groups = W.map((w, i) => {
       const g = done.filter(x => x.pf === i);
-      return { i, n: g.length, ar: mean(g.map(x => Math.abs(x.ar))), big: mean(g.map(x => (Math.abs(x.ar) > BIG ? 1 : 0))),
+      return { i, n: g.length, ar: mean(g.map(x => Math.abs(x.ar))), big: mean(g.map(x => (Math.abs(x.ar) > bigOf(x) ? 1 : 0))),
                sg: mean(g.map(x => x.sg)) };
     });
     const maxAr = Math.max(...groups.map(g => g.ar || 0), 0.01);
@@ -56,7 +58,7 @@
       <td>${g.n ? `<span class="bar" style="width:${g.ar / maxAr * 80}px"></span> ${g.ar.toFixed(2)}%` : "-"}</td>
       <td>${g.n ? pct(g.big) : "-"}</td></tr>`).join("");
 
-    c.innerHTML = `
+    c.innerHTML = warnHtml + `
       <div class="card"><h3 style="margin-top:0">${it.name}　成績表（${k}営業日先・答えが出た ${done.length} 件）</h3>
         <div class="scores">
           ${scoreCard("予想レンジに収まった割合", pct(inRange), "理想は約68%（±1σの範囲）", Math.abs(inRange - 0.68) <= 0.08)}
@@ -88,7 +90,7 @@
     const body = list.slice(0, shown).map(x => {
       const done = x.ar != null;
       const rangeHit = done && x.lo <= x.cl && x.cl <= x.hi;
-      const big = done && Math.abs(x.ar) > BIG;
+      const big = done && Math.abs(x.ar) > bigOf(x);
       return `<tr class="src${x.s}"><td>${x.b}</td><td>${x.t}${done ? "" : "（予定）"}</td><td>${x.s ? "再現" : "実予報"}</td>
         <td>${wx(x.pf)}</td><td>${done ? wx(x.aw) : '<span class="wait">答え待ち</span>'}</td>
         <td>±${x.sg.toFixed(2)}%</td>
