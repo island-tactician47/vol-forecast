@@ -1,0 +1,69 @@
+# 毎朝（日本時間 7:35ごろ、火〜土）データ取得→予報→答え合わせを実行し、GitHub Pagesに公開する。
+# Actions タブの「Run workflow」から手動でも実行できる。
+name: 毎朝の予報更新
+
+on:
+  schedule:
+    - cron: "35 22 * * 1-5"   # UTC 22:35 = 日本時間 7:35（米国市場の引け後）
+  workflow_dispatch:
+
+permissions:
+  contents: write    # 予報アーカイブをリポジトリに保存するため
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      TZ: Asia/Tokyo
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: ライブラリのインストール
+        run: pip install numpy pandas scipy yfinance
+
+      - name: ① データ取得
+        run: python data_fetch.py
+
+      - name: ② 予報
+        run: python forecast.py
+
+      - name: ⑤ 答え合わせ
+        run: python archive.py
+
+      # 検証は試行回数を記録するので、毎朝の自動実行では回さず手動実行のときだけ
+      - name: ③ 検証（手動実行のときのみ）
+        if: github.event_name == 'workflow_dispatch'
+        run: python backtest.py
+        continue-on-error: true
+
+      - name: ④ 自己相関
+        run: python acf.py
+
+      - name: 結果をリポジトリに保存
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898732+github-actions[bot]@users.noreply.github.com"
+          git add data results web/data
+          git diff --cached --quiet || git commit -m "予報更新 $(date +'%Y-%m-%d')"
+          git push
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - id: deploy
+        uses: actions/deploy-pages@v4

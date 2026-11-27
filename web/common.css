@@ -1,0 +1,49 @@
+/* 全ページ共通のスタイル */
+:root {
+  --bg: #eef4fa; --card: #ffffff; --ink: #1d2a38; --sub: #5c6b7a; --line: #d6e0ea;
+  --accent: #1f6fb2; --alert: #e6a100; --warning: #d23c3c; --good: #2f8f5b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+       background: var(--bg); color: var(--ink); line-height: 1.5; }
+header { background: linear-gradient(120deg, #1f6fb2, #3aa0d8); color: #fff; padding: 14px 20px; }
+header h1 { margin: 0; font-size: 20px; }
+header .meta { font-size: 12px; opacity: .85; }
+nav { display: flex; gap: 6px; padding: 8px 20px; background: #dde9f5; flex-wrap: wrap; }
+nav a { text-decoration: none; color: var(--accent); padding: 4px 10px; border-radius: 6px; font-size: 14px; }
+nav a.active { background: var(--accent); color: #fff; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.card { background: var(--card); border-radius: 12px; padding: 16px; margin-bottom: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.tabs button { border: 1px solid var(--line); background: #fff; padding: 6px 12px; border-radius: 999px;
+               cursor: pointer; font-size: 14px; }
+.tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.empty { padding: 40px; text-align: center; color: var(--sub); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--sub); font-weight: normal; }
+.note { font-size: 12px; color: var(--sub); }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 999px; color: #fff; font-size: 13px; font-weight: bold; }
+.badge.注意報 { background: var(--alert); }
+.badge.警報 { background: var(--warning); }
+.badge.pass { background: var(--good); }
+.badge.fail { background: var(--warning); }
+svg text { font-family: inherit; }
+details summary { cursor: pointer; color: var(--accent); margin: 8px 0; }
+
+/* ---- スマホ ---- */
+@media (max-width: 600px) {
+  header { padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top)); }
+  header h1 { font-size: 17px; }
+  nav { padding: 6px 10px; overflow-x: auto; flex-wrap: nowrap; }
+  nav a { white-space: nowrap; }
+  main { padding: 10px; }
+  .card { padding: 12px; border-radius: 10px; margin-bottom: 10px; }
+  .card h3 { font-size: 16px; }
+  table { display: block; overflow-x: auto; white-space: nowrap; font-size: 12px; -webkit-overflow-scrolling: touch; }
+  th, td { padding: 5px 6px; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .tabs button { white-space: nowrap; }
+}

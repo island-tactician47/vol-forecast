@@ -1,0 +1,25 @@
+/* 週間予報ページ専用 */
+.headline { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.headline .big { font-size: 72px; line-height: 1; }
+.headline h2 { margin: 0 0 4px; font-size: 22px; }
+.headline .sub { color: var(--sub); font-size: 14px; }
+.headline .vol { font-size: 30px; font-weight: bold; }
+.week { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.day { border: 1px solid var(--line); border-radius: 10px; padding: 10px; text-align: center; }
+.day .date { font-weight: bold; }
+.day .icon { font-size: 44px; margin: 4px 0; }
+.day .label { font-size: 15px; }
+.day .vol { font-size: 20px; font-weight: bold; color: var(--accent); }
+.day .row { font-size: 12px; color: var(--sub); }
+.day .rain { font-size: 13px; }
+.meter { height: 6px; background: #e3e9ef; border-radius: 3px; margin: 6px 0; overflow: hidden; }
+.meter > div { height: 100%; background: linear-gradient(90deg, #6cc3f0, #f0c36c, #e0533c); }
+
+@media (max-width: 600px) {
+  .headline { gap: 10px; }
+  .headline .big { font-size: 52px; }
+  .headline h2 { font-size: 16px; }
+  .headline .vol { font-size: 24px; }
+  .week { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .day { min-width: 136px; scroll-snap-align: start; }
+}

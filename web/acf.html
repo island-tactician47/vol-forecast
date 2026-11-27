@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ボラ予報 - 自己相関</title>
+<meta name="theme-color" content="#1f6fb2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ボラ予報">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="common.css">
+<style>
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔁 自己相関：方向は読めないが、荒れ具合は続く</h1>
+  <div class="meta" id="meta">データ未作成</div>
+</header>
+<nav>
+  <a href="forecast.html">週間予報</a>
+  <a href="backtest.html">予報の当たり具合</a>
+  <a href="archive.html">答え合わせ</a>
+  <a href="acf.html" class="active">自己相関</a>
+</nav>
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div class="card" id="content"><div class="empty">まだ計算結果がありません。ランチャーで「④ 自己相関を計算」を実行してください。</div></div>
+  <div class="card note">
+    横軸はラグ（何営業日前との相関か）。赤い点線は「相関0」とみなせる95%の範囲（±1.96/√n）。
+    リターン r はほぼ範囲内に収まる一方、|r| や r² は長いラグまで正の相関が続く（ボラティリティ・クラスタリング）。
+  </div>
+</main>
+<script src="data/acf.js"></script>
+<script src="chart.js"></script>
+<script>
+(() => {
+  const A = window.ACF;
+  if (!A || !A.items || !A.items.length) return;
+  document.getElementById("meta").textContent = `作成 ${A.generated_at} ／ 最大ラグ ${A.max_lag}`;
+  Chart.tabs(document.getElementById("tabs"), A.items, it => {
+    const c = document.getElementById("content");
+    c.innerHTML = `<h3 style="margin-top:0">${it.name}（${it.n}日）</h3>
+      <div class="grid3"><div id="a1"></div><div id="a2"></div><div id="a3"></div></div>`;
+    Chart.acfBars(document.getElementById("a1"), { values: it.r, band: it.band, title: "リターン r（方向）", color: "#8aa1b5" });
+    Chart.acfBars(document.getElementById("a2"), { values: it.abs, band: it.band, title: "|r|（変動の大きさ）" });
+    Chart.acfBars(document.getElementById("a3"), { values: it.sq, band: it.band, title: "r²", color: "#e07b39" });
+  });
+})();
+</script>
+</body>
+</html>

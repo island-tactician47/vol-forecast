@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ボラ予報 - 週間予報</title>
+<meta name="theme-color" content="#1f6fb2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ボラ予報">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="forecast.css">
+</head>
+<body>
+<header>
+  <h1>📈 マーケット天気予報</h1>
+  <div class="meta" id="meta">データ未作成</div>
+</header>
+<nav>
+  <a href="forecast.html" class="active">週間予報</a>
+  <a href="backtest.html">予報の当たり具合</a>
+  <a href="archive.html">答え合わせ</a>
+  <a href="acf.html">自己相関</a>
+</nav>
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div id="content"><div class="card empty">まだ予報がありません。ランチャーで「② 予報を計算」を実行してください。</div></div>
+  <div class="card note">
+    天気は「予想ボラティリティが過去の何%点にあたるか」で決めています（☀️〜20% / 🌤️〜40% / ⛅〜60% / 🌧️〜80% / ⛈️〜95% / 🌀それ以上）。
+    予想レンジは今日の終値から±1σ（約68%の確率でこの範囲）。値動きの<b>大きさ</b>の予報で、上がるか下がるか（方向）の予報ではありません。
+  </div>
+</main>
+<script src="data/forecast.js"></script>
+<script src="chart.js"></script>
+<script src="forecast.js"></script>
+</body>
+</html>

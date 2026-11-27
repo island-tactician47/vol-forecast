@@ -1,0 +1,23 @@
+/* 答え合わせページ専用 */
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+.controls select { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); }
+.scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.score { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.score .t { color: var(--sub); font-size: 13px; }
+.score .v { font-size: 30px; font-weight: bold; }
+.score .s { font-size: 12px; color: var(--sub); }
+.score.good .v { color: var(--good); }
+.score.bad .v { color: var(--warning); }
+.hit { color: var(--good); font-weight: bold; }
+.miss { color: var(--warning); font-weight: bold; }
+.wait { color: var(--sub); }
+.icon { font-size: 18px; }
+tr.src1 td { background: #fafcfe; }
+.bar { display: inline-block; height: 10px; background: #e07b39; border-radius: 2px; vertical-align: middle; }
+.more { margin-top: 10px; border: 1px solid var(--line); background: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+
+@media (max-width: 600px) {
+  .scores { grid-template-columns: 1fr 1fr; }
+  .score .v { font-size: 22px; }
+  .controls select { max-width: 100%; }
+}

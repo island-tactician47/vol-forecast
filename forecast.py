@@ -1,0 +1,184 @@
+"""② 予報：各銘柄のボラティリティを HORIZON 営業日先まで予測し、天気に変換して web/data/forecast.js に書く。
+実行するたびに予報を results/archive/forecasts.csv に追記する（⑤ 答え合わせで使う）。
+
+天気の決め方：MAIN_MODEL の予想ボラが、過去 LOOKBACK_YEARS 年の同モデルの
+ボラの中で何パーセンタイルにあたるか（＝いつもと比べてどれくらい荒れそうか）。
+「大荒れ確率」は、モデルの標準化残差の経験分布から |1日の変動| > BIG_MOVE_PCT となる確率。
+"""
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+
+from config import (ALERT_PCT, BIG_MOVE_PCT, HISTORY_DAYS, HORIZON, LOOKBACK_YEARS,
+                    MAIN_MODEL, MIN_DAYS, REALIZED_WINDOW, RESULT_DIR, WARNING_PCT, WEATHER)
+from data_io import display_name, list_datasets, load_returns, r, write_web_data
+from models import TRADING_DAYS, build_models
+
+WEEKDAYS = "月火水木金土日"
+ARCHIVE_FILE = RESULT_DIR / "archive" / "forecasts.csv"
+
+
+def weather_index(pct):
+    for i, (limit, *_rest) in enumerate(WEATHER):
+        if pct < limit:
+            return i
+    return len(WEATHER) - 1
+
+
+def weather_of(pct):
+    _, icon, label, desc = WEATHER[weather_index(pct)]
+    return {"icon": icon, "label": label, "desc": desc, "idx": weather_index(pct)}
+
+
+def alert_of(pct_max):
+    if pct_max >= WARNING_PCT:
+        return "警報"
+    if pct_max >= ALERT_PCT:
+        return "注意報"
+    return None
+
+
+def realized_centered(ret, window=REALIZED_WINDOW):
+    """後から見た「実際の荒れ具合」：前後 window 日の二乗リターン平均の平方根（%）。"""
+    return np.sqrt((ret ** 2).rolling(window, center=True, min_periods=max(3, window // 4)).mean())
+
+
+def make_days(main, df, path, fc):
+    """基準日（df の最終日）時点の予報を作る。df・path は基準日までのデータだけを渡すこと。"""
+    sig_hist = np.sqrt(path.dropna())
+    lookback = sig_hist.iloc[-LOOKBACK_YEARS * TRADING_DAYS:].to_numpy()
+    mu = main.mean() if hasattr(main, "mean") else 0.0
+    z = ((df["ret"] - mu) / np.sqrt(path)).replace([np.inf, -np.inf], np.nan).dropna().to_numpy()
+    abs_z = np.abs(z)
+    abs_ret = df["ret"].abs().iloc[-LOOKBACK_YEARS * TRADING_DAYS:]
+
+    sig = np.sqrt(fc)
+    cum_sd = np.sqrt(np.cumsum(fc))
+    close = float(df["close"].iloc[-1])
+    dates = pd.bdate_range(df.index[-1] + pd.Timedelta(days=1), periods=len(fc))  # 祝日は未考慮
+    days = []
+    for k in range(len(fc)):
+        pct = float((lookback < sig[k]).mean() * 100)
+        days.append({
+            "k": k + 1,
+            "date_iso": dates[k].strftime("%Y-%m-%d"),
+            "date": dates[k].strftime("%m/%d"),
+            "weekday": WEEKDAYS[dates[k].weekday()],
+            "sigma_daily": r(sig[k], 3),
+            "vol_ann": r(sig[k] * np.sqrt(TRADING_DAYS), 1),
+            "percentile": r(pct, 0),
+            "weather": weather_of(pct),
+            "prob_big": r(float((abs_z > BIG_MOVE_PCT / sig[k]).mean() * 100), 0),
+            "prob_big_clim": r(float((abs_ret > BIG_MOVE_PCT).mean() * 100), 0),  # 平年値（比較用）
+            "range_low": r(close * np.exp(-cum_sd[k] / 100), 2),
+            "range_high": r(close * np.exp(cum_sd[k] / 100), 2),
+        })
+    return days, lookback, sig_hist
+
+
+def fit_models(df):
+    fitted = {}
+    for m in build_models(df, HORIZON):
+        try:
+            m.fit(df)
+            fitted[m.name] = (m, m.forecast(df, HORIZON), m.one_step(df))
+        except Exception as e:
+            print(f"  {m.name} は失敗: {e}")
+    return fitted
+
+
+def forecast_one(key):
+    df = load_returns(key)
+    if len(df) < MIN_DAYS:
+        print(f"  データが {len(df)} 日しかないのでスキップ（MIN_DAYS={MIN_DAYS}）")
+        return None
+    fitted = fit_models(df)
+    if not fitted:
+        return None
+    main_name = MAIN_MODEL if MAIN_MODEL in fitted else next(iter(fitted))
+    main, fc, path = fitted[main_name]
+    days, lookback, sig_hist = make_days(main, df, path, fc)
+
+    last_sig = float(sig_hist.iloc[-1])
+    last_pct = float((lookback < last_sig).mean() * 100)
+    hist = df.iloc[-HISTORY_DAYS:]
+    comparison = [{"model": n, "vol_ann_day1": r(np.sqrt(f[0]) * np.sqrt(TRADING_DAYS), 1),
+                   "vol_ann_avg": r(np.sqrt(f.mean()) * np.sqrt(TRADING_DAYS), 1)}
+                  for n, (_, f, _) in fitted.items()]
+    item = {
+        "key": key,
+        "name": display_name(key),
+        "model": main_name,
+        "last_date": df.index[-1].strftime("%Y-%m-%d"),
+        "last_close": r(float(df["close"].iloc[-1]), 2),
+        "last_return": r(float(df["ret"].iloc[-1]), 2),
+        "today": {"sigma_daily": r(last_sig, 3), "vol_ann": r(last_sig * np.sqrt(TRADING_DAYS), 1),
+                  "percentile": r(last_pct, 0), "weather": weather_of(last_pct)},
+        "alert": alert_of(max(d["percentile"] for d in days)),
+        "days": days,
+        "comparison": comparison,
+        "params": {k: r(v, 5) for k, v in main.info().items()} if hasattr(main, "info") else None,
+        "history": {
+            "dates": [d.strftime("%Y-%m-%d") for d in hist.index],
+            "abs_ret": [r(abs(x), 3) for x in hist["ret"]],
+            "sigma": [r(x, 3) for x in np.sqrt(path.reindex(hist.index))],
+            "realized": [r(x, 3) for x in realized_centered(df["ret"]).reindex(hist.index)],
+        },
+        "n_days": len(df),
+    }
+    d1 = days[0]
+    print(f"  明日: {d1['weather']['icon']} {d1['weather']['label']}"
+          f"（年率 {d1['vol_ann']}%、過去{LOOKBACK_YEARS}年の{d1['percentile']:.0f}%点）"
+          + (f"  【{item['alert']}】" if item["alert"] else ""), flush=True)
+    return item
+
+
+def archive_rows(key, model, base_date, base_close, days, source):
+    run_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    return [{"run_at": run_at, "source": source, "key": key, "model": model,
+             "base_date": base_date, "base_close": base_close, "k": d["k"],
+             "target_date_est": d["date_iso"], "sigma_daily": d["sigma_daily"],
+             "percentile": d["percentile"], "weather_idx": d["weather"]["idx"],
+             "prob_big": d["prob_big"], "prob_big_clim": d["prob_big_clim"],
+             "range_low": d["range_low"], "range_high": d["range_high"]} for d in days]
+
+
+def save_archive(items):
+    rows = []
+    for it in items:
+        rows += archive_rows(it["key"], it["model"], it["last_date"], it["last_close"], it["days"], "実予報")
+    if not rows:
+        return
+    ARCHIVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(ARCHIVE_FILE, mode="a", header=not ARCHIVE_FILE.exists(),
+                              index=False, encoding="utf-8-sig")
+    print(f"予報をアーカイブに保存しました（{ARCHIVE_FILE.relative_to(RESULT_DIR.parent)}）")
+
+
+def main():
+    keys = list_datasets()
+    if not keys:
+        print("data/ にCSVがありません。先に ① データ取得 を実行してください。")
+        return
+    items = []
+    for key in keys:
+        print(f"{display_name(key)} を計算中...", flush=True)
+        try:
+            item = forecast_one(key)
+        except Exception as e:
+            print(f"  エラー: {e}")
+            item = None
+        if item:
+            items.append(item)
+
+    write_web_data("forecast.js", "FORECAST", {
+        "horizon": HORIZON, "main_model": MAIN_MODEL, "lookback_years": LOOKBACK_YEARS,
+        "big_move_pct": BIG_MOVE_PCT, "realized_window": REALIZED_WINDOW, "items": items,
+    })
+    save_archive(items)
+    print(f"完了：{len(items)}銘柄。ランチャーの「予報ページ」で表示できます。")
+
+
+if __name__ == "__main__":
+    main()

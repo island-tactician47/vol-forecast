@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ボラ予報 - 答え合わせ</title>
+<meta name="theme-color" content="#1f6fb2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ボラ予報">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="archive.css">
+</head>
+<body>
+<header>
+  <h1>📒 予報の答え合わせ（アーカイブ）</h1>
+  <div class="meta" id="meta">データ未作成</div>
+</header>
+<nav>
+  <a href="forecast.html">週間予報</a>
+  <a href="backtest.html">予報の当たり具合</a>
+  <a href="archive.html" class="active">答え合わせ</a>
+  <a href="acf.html">自己相関</a>
+</nav>
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div class="card controls" id="controls" hidden>
+    出どころ
+    <select id="src">
+      <option value="all">すべて</option>
+      <option value="0">実予報（実際に出した予報）</option>
+      <option value="1">再現（過去データで作り直した予報）</option>
+    </select>
+    何日先の予報
+    <select id="kSel"></select>
+  </div>
+  <div id="content"><div class="card empty">まだ答え合わせの結果がありません。ランチャーで「⑤ 答え合わせ」を実行してください。</div></div>
+  <div class="card note">
+    「実予報」は予報を計算するたびに自動で貯まります。「再現」はその日までのデータだけでモデルを推定し直して作った当時の予報で、実予報が貯まるまでの参考です。
+    1日ごとの値動きは偶然の要素が大きいので、1件ずつの当たり外れより、下の成績表（レンジ的中率・外れ率・天気ごとの実際の値動き）で判断してください。
+  </div>
+</main>
+<script src="data/archive.js"></script>
+<script src="chart.js"></script>
+<script src="archive.js"></script>
+</body>
+</html>

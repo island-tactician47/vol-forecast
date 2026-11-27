@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ボラ予報 - 予報の当たり具合</title>
+<meta name="theme-color" content="#1f6fb2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ボラ予報">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<header>
+  <h1>🎯 予報の当たり具合（バックテスト）</h1>
+  <div class="meta" id="meta">データ未作成</div>
+</header>
+<nav>
+  <a href="forecast.html">週間予報</a>
+  <a href="backtest.html" class="active">予報の当たり具合</a>
+  <a href="archive.html">答え合わせ</a>
+  <a href="acf.html">自己相関</a>
+</nav>
+<main>
+  <div class="card" id="verdict"><div class="empty">まだ検証結果がありません。ランチャーで「③ 予測精度の検証」を実行してください。</div></div>
+  <div class="tabs" id="tabs"></div>
+  <div id="content"></div>
+  <div class="card note">
+    QLIKE・MSEは小さいほど良い損失です（代理変数 r² がノイジーでも順位づけが歪みにくい指標）。
+    95%外れ率は「1日の変動が予想の±1.96σを超えた日の割合」で、5%に近いほど予想の幅が正しいことを表します。
+    DM統計量は基準モデルとの損失差の検定で、負なら基準より良い方向です。
+  </div>
+</main>
+<script src="data/backtest.js"></script>
+<script src="chart.js"></script>
+<script src="backtest.js"></script>
+</body>
+</html>
