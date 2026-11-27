@@ -19,13 +19,16 @@
         <div class="meter"><div style="width:${d.percentile}%"></div></div>
         <div class="row">過去の ${fmt(d.percentile, 0)}%点</div>
         <div class="rain">☔ 大荒れ確率 <b>${fmt(d.prob_big, 0)}%</b></div>
-        <div class="row">予想レンジ<br>${fmt(d.range_low, 0)} 〜 ${fmt(d.range_high, 0)}</div>
+        <div class="row">予想レンジ（68%）<br>${fmt(d.range_low, 0)} 〜 ${fmt(d.range_high, 0)}</div>
       </div>`).join("");
-    const cmp = it.comparison.map(c => `<tr><td>${c.model}${c.model === F.main_model ? "（主）" : ""}</td>
+    const cmp = it.comparison.map(c => `<tr><td>${c.model}${c.model === it.model ? "（主）" : ""}</td>
       <td>${fmt(c.vol_ann_day1)}%</td><td>${fmt(c.vol_ann_avg)}%</td></tr>`).join("");
     const p = it.params;
-    const params = p ? `<p class="note">GJR-GARCH：α=${fmt(p.alpha, 3)}　γ（下落の上乗せ）=${fmt(p.gamma, 3)}　β=${fmt(p.beta, 3)}
-      持続性=${fmt(p.persistence, 4)}　半減期=${fmt(p.half_life_days, 0)}営業日　長期平均ボラ=${fmt(p.long_run_vol_ann)}%</p>` : "";
+    const params = p && p.beta_d != null ? `<p class="note">HAR-RV（翌日の係数）：日 β=${fmt(p.beta_d, 3)}　週 β=${fmt(p.beta_w, 3)}　月 β=${fmt(p.beta_m, 3)}
+      ${p.beta_x != null ? `<br>前夜の先行市場（${it.exog}）の変動 β=${fmt(p.beta_x, 3)}　その下落分 β=${fmt(p.beta_xn, 3)}` : ""}</p>`
+      : p ? `<p class="note">GJR-GARCH：α=${fmt(p.alpha, 3)}　γ（下落の上乗せ）=${fmt(p.gamma, 3)}　β=${fmt(p.beta, 3)}
+      持続性=${fmt(p.persistence, 4)}　半減期=${fmt(p.half_life_days, 0)}営業日　長期平均ボラ=${fmt(p.long_run_vol_ann)}%
+      ${p.delta != null ? `<br>前夜の先行市場（${it.exog}）の効き：δ=${fmt(p.delta, 3)}　下落時の上乗せ δn=${fmt(p.delta_neg, 3)}` : ""}</p>` : "";
 
     document.getElementById("content").innerHTML = `
       <div class="card">
@@ -53,7 +56,7 @@
     Chart.barLine(document.getElementById("hist"), {
       labels: h.dates.map(s => s.slice(5)), bars: h.abs_ret, barName: "実際の|変動|",
       lines: [
-        { name: `予想ボラ σ（${F.main_model}）`, values: h.sigma, color: "#e07b39" },
+        { name: `予想ボラ σ（${it.model}）`, values: h.sigma, color: "#e07b39" },
         { name: `実際の荒れ具合（前後${F.realized_window}日）`, values: h.realized, color: "#2f8f5b", dash: true },
       ], yLabel: "%",
     });

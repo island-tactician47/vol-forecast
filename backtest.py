@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from config import (ACCEPT_WIN_RATIO, BENCHMARK, DM_LAG, MAIN_MODEL, MIN_DAYS, REFIT_DAYS,
+from config import (ACCEPT_WIN_RATIO, BENCHMARK, DM_LAG, LOOKBACK_YEARS, MAIN_MODEL, MIN_DAYS, REFIT_DAYS,
                     RESULT_DIR, TEST_YEARS)
 from data_io import display_name, list_datasets, load_returns, r, write_web_data
 from forecast import realized_centered
@@ -44,18 +44,26 @@ def backtest_one(key):
         print(f"  データ不足でスキップ（{n}日）")
         return None
 
-    preds = {}
+    preds, q95s = {}, {}
     for b in range(start, n, REFIT_DAYS):
         e = min(b + REFIT_DAYS, n)
         for m in build_models(df, 1):
             try:
                 m.fit(df.iloc[:b])
-                p = m.one_step(df.iloc[:e]).iloc[b:e]
+                p_all = m.one_step(df.iloc[:e])
+                p = p_all.iloc[b:e]
+                # 学習期間の標準化残差から95%点を求める（正規分布の1.96の代わり）
+                mu = m.mean() if hasattr(m, "mean") else 0.0
+                z = ((df["ret"].iloc[:b] - mu) / np.sqrt(p_all.iloc[:b])).abs()
+                z = z.replace([np.inf, -np.inf], np.nan).dropna().iloc[-LOOKBACK_YEARS * TRADING_DAYS:]
+                q95 = pd.Series(float(z.quantile(0.95)), index=p.index)
             except Exception as ex:
                 print(f"  {m.name} 失敗: {ex}")
                 continue
             preds.setdefault(m.name, []).append(p)
+            q95s.setdefault(m.name, []).append(q95)
     preds = {k: pd.concat(v) for k, v in preds.items()}
+    q95s = {k: pd.concat(v) for k, v in q95s.items()}
 
     test = df.iloc[start:]
     r2 = (test["ret"] ** 2).to_numpy()
@@ -67,7 +75,8 @@ def backtest_one(key):
         mse = np.where(ok, (r2 - h) ** 2, np.nan)
         losses[name] = ql
         rows.append({"model": name, "qlike": np.nanmean(ql), "mse": np.nanmean(mse),
-                     "miss95": np.nanmean(np.where(ok, np.abs(test["ret"].to_numpy()) > 1.96 * np.sqrt(np.where(ok, h, 1)), np.nan)) * 100})
+                     "miss95": np.nanmean(np.where(ok, np.abs(test["ret"].to_numpy()) > 1.96 * np.sqrt(np.where(ok, h, 1)), np.nan)) * 100,
+                     "miss95_emp": np.nanmean(np.where(ok, np.abs(test["ret"].to_numpy()) > q95s[name].reindex(test.index).to_numpy() * np.sqrt(np.where(ok, h, 1)), np.nan)) * 100})
     bench = losses.get(BENCHMARK)
     for row in rows:
         if bench is not None and row["model"] != BENCHMARK:
@@ -79,7 +88,7 @@ def backtest_one(key):
     q = {row["model"]: row["qlike"] for row in rows}
     win = MAIN_MODEL in q and BENCHMARK in q and q[MAIN_MODEL] < q[BENCHMARK]
     for row in rows:
-        print(f"  {row['model']:<10} QLIKE {row['qlike']:.4f}  外れ率 {row['miss95']:.1f}%"
+        print(f"  {row['model']:<10} QLIKE {row['qlike']:.4f}  外れ率 正規{row['miss95']:.1f}% 実績分布{row['miss95_emp']:.1f}%"
               + (f"  DM {row['dm_stat']:+.2f} (p={row['dm_p']:.3f})" if np.isfinite(row["dm_stat"]) else ""))
 
     chart = test.iloc[-CHART_DAYS:]

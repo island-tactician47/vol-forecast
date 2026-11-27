@@ -70,8 +70,44 @@ def make_returns(px):
     return df
 
 
-def load_returns(key):
-    return make_returns(load_prices(key))
+def add_exog(df, driver):
+    """先行市場のリターンを、対象日 t の寄り付き前に分かっている形で列に足す。
+
+    x       : 対象日 t より前の日付で最新の先行市場の二乗リターン（%^2）
+    xn      : そのリターンが負のときだけ x（下落の上乗せ用）
+    x_next / xn_next : 次の対象日（行 t の翌営業日）向けの同じ値。予報時点で既知。
+    """
+    drv = driver[["ret"]].rename(columns={"ret": "dret"}).copy()
+    drv["ddate"] = drv.index
+
+    def asof(dates):
+        left = pd.DataFrame({"date": pd.to_datetime(dates)})
+        m = pd.merge_asof(left, drv, left_on="date", right_on="ddate",
+                          direction="backward", allow_exact_matches=False)
+        return m["dret"].to_numpy()
+
+    cur = asof(df.index)
+    nxt_dates = list(df.index[1:]) + [df.index[-1] + pd.offsets.BDay(1)]
+    nxt = asof(nxt_dates)
+    out = df.copy()
+    for name, v in [("x", cur), ("x_next", nxt)]:
+        v = np.nan_to_num(v, nan=0.0)
+        out[name] = v ** 2
+        out[name.replace("x", "xn", 1)] = np.where(v < 0, v ** 2, 0.0)
+    return out
+
+
+def load_returns(key, with_exog=True):
+    from config import EXOG
+    df = make_returns(load_prices(key))
+    drv_key = EXOG.get(key)
+    if with_exog and drv_key and (DATA_DIR / f"{drv_key}.csv").exists():
+        df = add_exog(df, make_returns(load_prices(drv_key)))
+    return df
+
+
+def has_exog(df):
+    return "x" in df and "x_next" in df
 
 
 def has_range(df):

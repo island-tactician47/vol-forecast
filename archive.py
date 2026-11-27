@@ -11,10 +11,10 @@
 import numpy as np
 import pandas as pd
 
-from config import (BACKFILL_DAYS, BIG_MOVE_PCT, HORIZON, LOOKBACK_YEARS, MAIN_MODEL,
+from config import (BACKFILL_DAYS, BIG_MOVE_PCT, HORIZON, LOOKBACK_YEARS, MAIN_MODEL, MAIN_MODEL_BY_KEY,
                     MIN_DAYS, REFIT_DAYS, RESULT_DIR, WEATHER)
 from data_io import display_name, list_datasets, load_returns, r, write_web_data
-from forecast import ARCHIVE_FILE, archive_rows, make_days, weather_index
+from forecast import ARCHIVE_FILE, archive_rows, make_days, read_archive, weather_index
 from models import TRADING_DAYS, build_models
 
 BACKFILL_FILE = RESULT_DIR / "archive" / "backfill.csv"
@@ -28,7 +28,7 @@ def backfill(key, df):
     for b in range(start, n, REFIT_DAYS):
         e = min(b + REFIT_DAYS, n)
         models = {m.name: m for m in build_models(df, HORIZON)}
-        m = models.get(MAIN_MODEL) or next(iter(models.values()))
+        m = models.get(MAIN_MODEL_BY_KEY.get(key, MAIN_MODEL)) or next(iter(models.values()))
         m.fit(df.iloc[:b])                      # 基準日 b-1 までで推定
         path_all = m.one_step(df.iloc[:e])
         for t in range(b - 1, min(e, n - 1)):    # 基準日 t（翌日以降の実績が1日以上ある日）
@@ -51,6 +51,7 @@ def score(fc, df):
         rec = {"s": 0 if row.source == "実予報" else 1, "b": row.base_date, "k": int(row.k),
                "sg": row.sigma_daily, "pf": int(row.weather_idx), "pp": row.percentile,
                "pb": row.prob_big, "cb": row.prob_big_clim, "lo": row.range_low, "hi": row.range_high,
+               "b9": r(getattr(row, "band95", None), 3),
                "t": row.target_date_est, "ar": None, "cl": None, "aw": None, "ap": None}
         if bi >= 0 and ti < len(df):
             past = abs_ret[max(0, bi - L + 1):bi + 1]
@@ -66,7 +67,7 @@ def main():
     if not keys:
         print("data/ にCSVがありません。先に ① データ取得 を実行してください。")
         return
-    live = pd.read_csv(ARCHIVE_FILE, encoding="utf-8-sig") if ARCHIVE_FILE.exists() else pd.DataFrame()
+    live = read_archive() if ARCHIVE_FILE.exists() else pd.DataFrame()
     if not live.empty:  # 同じ基準日に何度も実行した場合は最後の予報を採用
         live = live.drop_duplicates(["key", "base_date", "k"], keep="last")
     print(f"実予報のアーカイブ：{len(live)} 件")

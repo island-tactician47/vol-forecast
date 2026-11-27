@@ -37,7 +37,8 @@
     const exact = mean(done.map(x => (x.pf === x.aw ? 1 : 0)));
     const bench = mean(done.map(x => Math.abs(2 - x.aw) <= 1 ? 1 : 0)); // 毎日「くもり」
     const inRange = mean(done.map(x => (x.lo <= x.cl && x.cl <= x.hi ? 1 : 0)));
-    const exceed = mean(done.map(x => (Math.abs(x.ar) > 1.96 * x.sg ? 1 : 0)));
+    const band = x => (x.b9 != null ? x.b9 : 1.96 * x.sg);  // 実績分布の95%ライン（古い記録は1.96σ）
+    const exceed = mean(done.map(x => (Math.abs(x.ar) > band(x) ? 1 : 0)));
     const y = done.map(x => (Math.abs(x.ar) > BIG ? 1 : 0));
     const brier = mean(done.map((x, i) => (x.pb / 100 - y[i]) ** 2));
     const brierClim = mean(done.map((x, i) => ((x.cb ?? 0) / 100 - y[i]) ** 2));
@@ -59,7 +60,7 @@
       <div class="card"><h3 style="margin-top:0">${it.name}　成績表（${k}営業日先・答えが出た ${done.length} 件）</h3>
         <div class="scores">
           ${scoreCard("予想レンジに収まった割合", pct(inRange), "理想は約68%（±1σの範囲）", Math.abs(inRange - 0.68) <= 0.08)}
-          ${scoreCard("大外れ（±1.96σ超え）の割合", pct(exceed), "理想は約5%。多すぎると荒れを甘く見ている", exceed <= 0.08)}
+          ${scoreCard("大外れ（95%ライン超え）の割合", pct(exceed), "理想は約5%。多すぎると荒れを甘く見ている", exceed <= 0.08)}
           ${scoreCard("天気の的中（±1段階以内）", pct(within1), `ぴったり ${pct(exact)}／参考：毎日「くもり」と言うと ${pct(bench)}`, within1 > bench)}
           ${scoreCard("大荒れ予報のスキル", isFinite(skill) ? skill.toFixed(2) : "-",
              `予報の平均 ${mean(done.map(x => x.pb)).toFixed(0)}% → 実際 ${pct(mean(y))}。0より大きければ「平年並み」より役立つ`, isFinite(skill) ? skill > 0 : null)}
@@ -77,7 +78,7 @@
     Chart.barLine(document.getElementById("chart"), {
       labels: cs.map(x => x.t.slice(2)), bars: cs.map(x => Math.abs(x.ar)), barName: "実際の|変動|",
       lines: [{ name: "予想σ", values: cs.map(x => x.sg), color: "#e07b39" },
-              { name: "1.96σ（超えたら大外れ）", values: cs.map(x => 1.96 * x.sg), color: "#d23c3c", dash: true, width: 1.2 }],
+              { name: "95%ライン（超えたら大外れ）", values: cs.map(band), color: "#d23c3c", dash: true, width: 1.2 }],
       yLabel: "%", height: 280,
     });
   }

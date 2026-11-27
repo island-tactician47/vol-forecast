@@ -11,11 +11,11 @@
 
   function render(it) {
     const rows = it.rows.map((r, i) => `<tr><td>${i === 0 ? "🥇 " : ""}${r.model}${r.model === B.benchmark ? "（基準）" : ""}</td>
-      <td>${fmt(r.qlike)}</td><td>${fmt(r.mse, 2)}</td><td>${fmt(r.miss95, 1)}%</td>
+      <td>${fmt(r.qlike)}</td><td>${fmt(r.mse, 2)}</td><td>${fmt(r.miss95, 1)}%</td><td>${r.miss95_emp == null ? "-" : fmt(r.miss95_emp, 1) + "%"}</td>
       <td>${r.dm_stat == null ? "-" : fmt(r.dm_stat, 2)}</td><td>${r.dm_p == null ? "-" : fmt(r.dm_p, 3)}</td></tr>`).join("");
     document.getElementById("content").innerHTML = `
       <div class="card"><h3 style="margin-top:0">${it.name}　${it.test_start} 〜 ${it.test_end}（${it.n_test}日）</h3>
-        <table><tr><th>モデル</th><th>QLIKE</th><th>MSE</th><th>95%外れ率</th><th>DM統計量</th><th>p値</th></tr>${rows}</table></div>
+        <table><tr><th>モデル</th><th>QLIKE</th><th>MSE</th><th>95%外れ率（正規）</th><th>同（実績分布）</th><th>DM統計量</th><th>p値</th></tr>${rows}</table></div>
       <div class="card"><h3 style="margin-top:0">直近の予想ボラと実際の|変動|（1日あたり%）</h3><div id="chart"></div></div>`;
     const c = it.chart;
     Chart.barLine(document.getElementById("chart"), {

@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "35 22 * * 1-5"   # UTC 22:35 = 日本時間 7:35（米国市場の引け後）
   workflow_dispatch:
+  push:                       # コードを更新したら自動で再計算・公開（ボットの自動コミットでは起動しない）
+    branches: [main]
+    paths: ["**.py", "web/**.html", "web/**.js", "web/**.css", ".github/workflows/**"]
 
 permissions:
   contents: write    # 予報アーカイブをリポジトリに保存するため
@@ -44,9 +47,9 @@ jobs:
       - name: ⑤ 答え合わせ
         run: python archive.py
 
-      # 検証は試行回数を記録するので、毎朝の自動実行では回さず手動実行のときだけ
-      - name: ③ 検証（手動実行のときのみ）
-        if: github.event_name == 'workflow_dispatch'
+      # 検証は試行回数を記録するので、毎朝の自動実行では回さず、コード更新・手動実行のときだけ
+      - name: ③ 検証（コード更新・手動実行のとき）
+        if: github.event_name != 'schedule'
         run: python backtest.py
         continue-on-error: true
 
