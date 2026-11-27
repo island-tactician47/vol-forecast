@@ -1,7 +1,7 @@
 # ボラ予報（ボラティリティの天気予報）
 
 株価・指数の「値動きの大きさ（ボラティリティ）」を数営業日先まで予測し、天気予報のように表示する雛形です。
-本体は値動きの大きさの予報です。方向（上がる・下がる）は「上がる確率」として参考までに出しますが、当たりにくい予想で、当たり具合の検証も一緒に出します（下の「方向の見立て」）。
+本体は値動きの大きさの予報です。方向（上がる・下がる）は、別ページの「方向の見立て」に「上がる確率」として参考までに出します。当たりにくい予想で、当たり具合の検証も一緒に出します（下の「方向の見立て」）。メインの週間予報には出しません。
 
 詳しい仕様は `docs/仕様書.md`、これまでの経緯と成績は `docs/進捗.md`。
 
@@ -26,13 +26,14 @@ pip install numpy pandas scipy yfinance
 | `data_fetch.py` | ① yfinanceで日足を取得 → `data/` |
 | `forecast.py` | ② 予報 → `web/data/forecast.js` |
 | `backtest.py` | ③ 検証 → `web/data/backtest.js`、試行ログ `results/backtest_log.csv` |
-| `trend.py` | 方向の見立て（k営業日後に上がる確率と、直近3年の当たり具合の検証）。② 予報から呼ばれる |
+| `trend.py` | 方向の見立て（k営業日後に上がる確率と、直近3年の当たり具合の検証）。② 予報から呼ばれ、`web/data/trend.js` に書く（ボラの予報とは別ファイル） |
 | `acf.py` | ④ 自己相関 → `web/data/acf.js` |
 | `archive.py` | ⑤ 答え合わせ → `web/data/archive.js`、直近の的中率 `web/data/track.js`（予報の記録は `results/archive/`） |
 | `web/forecast.*` | 週間予報ページ |
 | `web/backtest.*` | 当たり具合ページ |
 | `web/archive.*` | 答え合わせページ |
 | `web/acf.html` | 自己相関ページ |
+| `web/trend.*` | 方向の見立てページ（ボラの週間予報とは別ページ） |
 | `web/chart.js`, `web/common.css` | ページ共通の部品 |
 
 ## 天気の決め方

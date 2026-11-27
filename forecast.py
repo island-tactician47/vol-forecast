@@ -192,7 +192,7 @@ def trend_of(df):
         print(f"  方向の見立てに失敗: {type(e).__name__}: {e}")
         return None
     days = [{"k": x["k"], "p_up": r(x["p_up"], 4), "base": r(x["base"], 4), **trend.label_of(x["p_up"], x["base"])} for x in fc]
-    return {"days": days, "grade": trend.grade_of(ev), "band": trend.TREND_BAND if hasattr(trend, "TREND_BAND") else None,
+    return {"days": days, "grade": trend.grade_of(ev), "band": trend.TREND_BAND,
             "eval": [{"k": k, **{c: (r(v, 4) if isinstance(v, float) else v) for c, v in e.items()}} for k, e in ev.items()]}
 
 
@@ -261,8 +261,11 @@ def forecast_one(key):
         "n_days": len(df),
         "big": {"main_mult": BIG_MOVE_MAIN, "main_pct": days[0]["big_pct"]},
         "warnings": data_warnings(key, df.index[-1]),
-        "trend": trend_of(df),
+        "trend": trend_of(df),   # 方向の見立て。ボラの予報とは別ページ（trend.js）に書くため、main() で取り出す
     }
+    if item["trend"]:  # 日付は予報の日付（営業日）にそろえる
+        for t, d in zip(item["trend"]["days"], days):
+            t["date"], t["weekday"] = d["date"], d["weekday"]
     d1 = days[0]
     print(f"  明日: {d1['weather']['icon']} {d1['weather']['label']}"
           f"（1日 ±{d1['move68']}%、予想σ {d1['sigma_daily']}%、過去{LOOKBACK_YEARS}年の{d1['percentile']:.0f}%点）"
@@ -332,6 +335,9 @@ def main():
         if item:
             items.append(item)
 
+    trend_items = [{"key": it["key"], "name": it["name"], "last_date": it["last_date"], "last_close": it["last_close"],
+                    "trend": it.pop("trend", None)} for it in items]   # 方向の見立ては forecast.js に入れず、別ページ用に分ける
+    write_web_data("trend.js", "TREND", {"horizon": HORIZON, "band": trend.TREND_BAND, "items": trend_items})
     write_web_data("forecast.js", "FORECAST", {
         "horizon": HORIZON, "main_model": MAIN_MODEL, "lookback_years": LOOKBACK_YEARS,
         "big_move_mult": BIG_MOVE_MAIN, "big_move_tiers": list(BIG_MOVE_TIERS), "weather_by": WEATHER_BY,

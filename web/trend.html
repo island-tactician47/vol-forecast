@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ボラ予報 - 方向の見立て</title>
+<meta name="theme-color" content="#1f6fb2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ボラ予報">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="forecast.css">
+</head>
+<body>
+<header>
+  <h1>🧭 方向の見立て（当たりにくい予想）</h1>
+  <div class="meta" id="meta">データ未作成</div>
+</header>
+<nav>
+  <a href="forecast.html">週間予報</a>
+  <a href="backtest.html">予報の当たり具合</a>
+  <a href="archive.html">答え合わせ</a>
+  <a href="acf.html">自己相関</a>
+  <a href="trend.html" class="active">方向の見立て</a>
+</nav>
+<main>
+  <div class="card warnbox" style="margin-bottom:12px">
+    ここは<b>おまけのページ</b>です。「上がるか下がるか」の予想は当たりにくく、直近3年の検証では、ほとんどの銘柄で「平年の上昇率だけで答える」予想と区別できませんでした。
+    ボラティリティ（値動きの大きさ）の予報とは別物として、検証の数字を見ながら参考程度に使ってください。
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div id="content"><div class="card empty">まだ見立てがありません。ランチャーで「② 予報を計算」を実行してください。</div></div>
+  <div class="card note">
+    「上がる確率」は、k営業日後の終値が今日の終値より上になる確率です。過去の値動きのパターン（5・20・60・120・250日の騰落率、200日移動平均からの乖離、直近の変動の比）から、強く縮めたロジスティック回帰で出しています。
+    縮めてあるので、確率は「平年の上昇率」に近いところに寄ります。平年の上昇率から3ポイント以上ずれたときだけ「上向き気味／下向き気味」と表示します。<br>
+    当たり具合は、直近3年を、過去のデータだけで推定し直しながら採点した結果です。「平年の多数派」は、学習期間で多かった方（たいてい「上」）を毎回答えた場合の的中率で、これと同じくらいなら、方向の予想には中身がありません。
+    t が -2 以下なら、平年の上昇率だけで答えるより有意に良いという意味です（k日先の目標は重なるため補正済み）。
+  </div>
+</main>
+<script src="common.js"></script>
+<script>loadData("trend.js");</script>
+<script src="chart.js"></script>
+<script src="trend.js"></script>
+</body>
+</html>
