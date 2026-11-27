@@ -46,21 +46,44 @@
       </div>
       <div class="card"><h3 style="margin-top:0">週間予報（${F.horizon}営業日）</h3><div class="week">${days}</div>
         <p class="note">日付は土日を除いた営業日で、祝日は考慮していません。</p></div>
-      <div class="card"><h3 style="margin-top:0">これまでの値動きと予想ボラ（1日あたり%）</h3><div id="hist"></div>
+      <div class="card">
+        <h3 style="margin-top:0">チャート</h3>
+        <div class="periods" id="periods"></div>
+        <div id="price"></div>
+        <h3>荒れ具合の推移（1日あたり%）</h3>
+        <div id="hist"></div>
         <p class="note">予想ボラ（オレンジ）は緑の点線（後から見た実際の荒れ具合）と比べてください。
-        1日ごとの|変動|（棒）は、予想が正しくても大きくばらつきます（正規分布なら平均は約0.8σ、2σ超えも約5%）。</p></div>
+        1日ごとの|変動|（棒）は、予想が正しくても大きくばらつきます（正規分布なら平均は約0.8σ、2σ超えも約5%）。
+        グラフをタップ・なぞると、その日の値が出ます。長い期間はまとめて平均しています。</p></div>
       <div class="card"><details><summary>モデル比較・パラメータ</summary>
         <table><tr><th>モデル</th><th>次の営業日の値動き</th><th>（参考）年率換算</th></tr>${cmp}</table>${params}
         <p class="note">年率換算は「この荒れ具合が1年続いたら」という仮の数字で、プロの比較用の単位です。</p>
         <p class="note">データ ${it.n_days} 日分で推定。</p></details></div>`;
 
-    const h = it.history;
+    PriceChart.periodButtons(document.getElementById("periods"), period, days => { period = days; drawCharts(it); });
+    drawCharts(it);
+  }
+
+  let period = 126;  // 既定は6か月（銘柄を切り替えても保つ）
+
+  function drawCharts(it) {
+    const h = it.history, n = h.dates.length;
+    const start = period == null ? 0 : Math.max(0, n - period);
+    const span = n - start;
+    const cone = it.days.map(d => ({ date: d.date_iso, low: d.range_low, high: d.range_high }));
+    PriceChart.draw(document.getElementById("price"), { h, start, cone, lastClose: it.last_close });
+
+    const v = PriceChart.volSeries(h, start);
+    const avg = v.k > 1 ? `（${v.k}日平均）` : "";
     Chart.barLine(document.getElementById("hist"), {
-      labels: h.dates.map(s => s.slice(5)), bars: h.abs_ret, barName: "実際の|変動|",
+      labels: v.dates.map(d => Chart.dateLabel(d, span)), bars: v.abs, barName: `実際の|変動|${avg}`,
       lines: [
-        { name: `予想ボラ σ（${it.model}）`, values: h.sigma, color: "#e07b39" },
-        { name: `実際の荒れ具合（前後${F.realized_window}日）`, values: h.realized, color: "#2f8f5b", dash: true },
+        { name: `予想ボラ σ（${it.model}）`, values: v.sigma, color: "#e07b39" },
+        { name: `実際の荒れ具合（前後${F.realized_window}日）`, values: v.realized, color: "#2f8f5b", dash: true },
       ], yLabel: "%",
+      tip: i => [v.dates[i] + (v.k > 1 ? `まで${v.k}日` : ""),
+                 `実際の|変動| ${fmt(v.abs[i], 2)}%`, `予想σ ${fmt(v.sigma[i], 2)}%`,
+                 v.realized[i] != null ? `実際の荒れ具合 ${fmt(v.realized[i], 2)}%` : null],
     });
   }
 

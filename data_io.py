@@ -27,7 +27,7 @@ def _find(columns, candidates):
 
 
 def load_prices(key):
-    """CSVを読み、index=日付、列 close（必須）/ high / low（任意）の表を返す。
+    """CSVを読み、index=日付、列 close（必須）/ open / high / low（任意）の表を返す。
 
     想定する形式:
       - data_fetch.py が書く形式（Date, Open, High, Low, Close）
@@ -47,7 +47,7 @@ def load_prices(key):
 
     out = pd.DataFrame(index=raw.index)
     out["close"] = pd.to_numeric(raw[close_col], errors="coerce")
-    for name, cands in [("high", ["high", "高値"]), ("low", ["low", "安値"])]:
+    for name, cands in [("open", ["open", "始値"]), ("high", ["high", "高値"]), ("low", ["low", "安値"])]:
         c = _find(raw.columns, cands)
         if c is not None:
             out[name] = pd.to_numeric(raw[c], errors="coerce")

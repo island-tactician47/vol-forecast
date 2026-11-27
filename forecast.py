@@ -10,11 +10,11 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from config import (ALERT_PCT, BAND_COVERAGE, BIG_MOVE_PCT, HISTORY_DAYS, HORIZON, LOOKBACK_YEARS,
+from config import (ALERT_PCT, BAND_COVERAGE, BIG_MOVE_PCT, CANDLE_DAYS, HORIZON, LOOKBACK_YEARS,
                     MAIN_MODEL, MAIN_MODEL_BY_KEY, MIN_DAYS, RANGE_COVERAGE, REALIZED_WINDOW, RESULT_DIR, WARNING_PCT,
                     TAIL_FLOOR, WEATHER)
 from config import EXOG
-from data_io import display_name, list_datasets, load_returns, r, write_web_data
+from data_io import display_name, list_datasets, load_prices, load_returns, r, write_web_data
 from models import TRADING_DAYS, build_models
 
 WEEKDAYS = "月火水木金土日"
@@ -129,7 +129,12 @@ def forecast_one(key):
 
     last_sig = float(sig_hist.iloc[-1])
     last_pct = float((lookback < last_sig).mean() * 100)
-    hist = df.iloc[-HISTORY_DAYS:]
+    px = load_prices(key).reindex(df.index)
+    cs = df.index[-CANDLE_DAYS:]
+
+    def col(name, idx):
+        return [r(x, 2) for x in px[name].reindex(idx)] if name in px else None
+
     comparison = [{"model": n, "move68_day1": r(q68 * np.sqrt(f[0]), 2), "vol_ann_day1": r(np.sqrt(f[0]) * np.sqrt(TRADING_DAYS), 1),
                    "vol_ann_avg": r(np.sqrt(f.mean()) * np.sqrt(TRADING_DAYS), 1)}
                   for n, (_, f, _) in fitted.items()]
@@ -148,11 +153,14 @@ def forecast_one(key):
         "comparison": comparison,
         "params": {k: r(v, 5) for k, v in main.info().items()} if hasattr(main, "info") else None,
         "exog": EXOG.get(key),
-        "history": {
-            "dates": [d.strftime("%Y-%m-%d") for d in hist.index],
-            "abs_ret": [r(abs(x), 3) for x in hist["ret"]],
-            "sigma": [r(x, 3) for x in np.sqrt(path.reindex(hist.index))],
-            "realized": [r(x, 3) for x in realized_centered(df["ret"]).reindex(hist.index)],
+        "history": {  # チャート用（全期間）。ボラは % / 日
+            "dates": [d.strftime("%Y-%m-%d") for d in df.index],
+            "close": [r(x, 2) for x in df["close"]],
+            "abs_ret": [r(abs(x), 2) for x in df["ret"]],
+            "sigma": [r(x, 2) for x in np.sqrt(path)],
+            "realized": [r(x, 2) for x in realized_centered(df["ret"])],
+            "candle_from": len(df) - len(cs),  # ここから先は始値・高値・安値あり
+            "open": col("open", cs), "high": col("high", cs), "low": col("low", cs),
         },
         "n_days": len(df),
     }

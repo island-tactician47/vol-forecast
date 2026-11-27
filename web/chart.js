@@ -9,8 +9,45 @@ const Chart = (() => {
   };
   const COLORS = ["#1f6fb2", "#e07b39", "#2f8f5b", "#8e5bb5", "#c2416b"];
 
+  // タップ・なぞりで値を表示する（tip(i) が表示する行の配列を返す）
+  function attachTip(svg, { m, W, H, n, x, tip }) {
+    if (!tip) return;
+    const g = el("g", { visibility: "hidden", "pointer-events": "none" });
+    const vline = el("line", { y1: m.t, y2: H - m.b, stroke: "#1d2a38", "stroke-width": 1, "stroke-dasharray": "3 3" });
+    const box = el("rect", { rx: 6, fill: "rgba(29,42,56,.88)" });
+    const txt = el("text", { "font-size": 12, fill: "#fff" });
+    g.append(vline, box, txt);
+    const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+    svg.append(hit, g);
+    const show = ev => {
+      const r = svg.getBoundingClientRect();
+      const px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+      const i = Math.max(0, Math.min(n - 1, Math.round((px - m.l) / (W - m.l - m.r) * n - 0.5)));
+      const lines = tip(i).filter(Boolean);
+      const xi = x(i);
+      vline.setAttribute("x1", xi); vline.setAttribute("x2", xi);
+      txt.innerHTML = "";
+      lines.forEach((t, k) => txt.appendChild(el("tspan", { x: 0, dy: k ? 16 : 0 }, t)));
+      const bw = Math.max(...lines.map(t => t.length)) * 11 + 14, bh = lines.length * 16 + 8;
+      const bx = xi + 10 + bw > W ? xi - 10 - bw : xi + 10;
+      box.setAttribute("x", bx); box.setAttribute("y", m.t + 4);
+      box.setAttribute("width", bw); box.setAttribute("height", bh);
+      [...txt.children].forEach(c => c.setAttribute("x", bx + 7));
+      txt.setAttribute("y", m.t + 20);
+      g.setAttribute("visibility", "visible");
+    };
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerdown", show);
+    hit.addEventListener("pointerleave", () => g.setAttribute("visibility", "hidden"));
+  }
+
+  // 日付ラベルを期間に合わせて間引く（短い期間は月/日、長い期間は年-月）
+  function dateLabel(d, span) {
+    return span > 400 ? d.slice(0, 7) : d.slice(5);
+  }
+
   // 棒（bars）＋折れ線（lines）。labels は x 軸ラベル（日付など）
-  function barLine(container, { labels, bars, barName, lines = [], yLabel = "", height = 260 }) {
+  function barLine(container, { labels, bars, barName, lines = [], yLabel = "", height = 260, tip = null }) {
     const W = Math.max(container.clientWidth || 700, 320), H = height;
     const m = { l: 46, r: 12, t: 26, b: 28 };
     const iw = W - m.l - m.r, ih = H - m.t - m.b, n = labels.length;
@@ -52,6 +89,7 @@ const Chart = (() => {
       svg.appendChild(el("text", { x: lx + 16, y: 15, "font-size": 12, fill: "#1d2a38" }, it.name));
       lx += 24 + it.name.length * 12;
     });
+    attachTip(svg, { m, W, H, n, x, tip });
     container.innerHTML = "";
     container.appendChild(svg);
   }
@@ -104,5 +142,5 @@ const Chart = (() => {
     });
   }
 
-  return { barLine, acfBars, tabs, COLORS };
+  return { barLine, acfBars, tabs, COLORS, el, attachTip, dateLabel };
 })();

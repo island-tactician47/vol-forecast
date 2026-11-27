@@ -23,3 +23,13 @@
   .week { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
   .day { min-width: 136px; scroll-snap-align: start; }
 }
+
+/* チャートの期間ボタン */
+.periods { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.periods button { border: 1px solid var(--line); background: #fff; padding: 4px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.periods button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+#price, #hist { touch-action: pan-y; }
+@media (max-width: 600px) {
+  .periods { flex-wrap: nowrap; overflow-x: auto; }
+  .periods button { white-space: nowrap; }
+}
