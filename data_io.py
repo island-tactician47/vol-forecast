@@ -1,6 +1,6 @@
 """価格CSVの読み込みとリターン計算（各スクリプト共通）。"""
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -68,7 +68,7 @@ def drop_incomplete(px, key, now=None):
     """
     if key not in FX_KEYS or px.empty:
         return px
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
     if px.index[-1].date() == now.date() and now.hour < FX_BAR_COMPLETE_UTC_HOUR:
         return px.iloc[:-1]
     return px

@@ -6,7 +6,11 @@
           推定・予報し直したもの（ウォークフォワード。BACKFILL_DAYS 日分）
 
 突き合わせは「基準日から k 営業日後」のデータ行で行う（祝日でずれない）。
-実際の天気は、実際の|変動|が過去の|変動|の何%点だったかで決める。
+実際の天気は、予報と同じ物差しで決める：
+  WEATHER_BY="move" … 実際の|変動|を σ に直し（|変動|÷0.798。正規分布なら平均的な|変動|は0.798σ）、
+                      予報した日の時点の天気の境界（その銘柄の普段の標準偏差の倍数）に当てはめる。
+                      予報の天気も、σ（sigma_daily）から同じ境界で付け直す（古い記録も同じ基準にそろう）。
+  WEATHER_BY="percentile" … 実際の|変動|が過去の|変動|の何%点だったか。
 「大荒れ」の基準（big_pct）は予報した時点のものを行ごとに記録し、採点でもそれを使う
 （古い記録で big_pct が無いものは旧方式の固定 BIG_MOVE_PCT）。
 再現に失敗した銘柄があれば、警告（Actions の注釈）を出してページにも表示する（黙って実予報だけにはしない）。
@@ -17,9 +21,9 @@ import numpy as np
 import pandas as pd
 
 from config import (BACKFILL_DAYS, BIG_MOVE_PCT, HORIZON, LOOKBACK_YEARS, MAIN_MODEL, MAIN_MODEL_BY_KEY,
-                    MIN_DAYS, REFIT_DAYS, RESULT_DIR, WEATHER)
+                    MIN_DAYS, REFIT_DAYS, RESULT_DIR, WEATHER, WEATHER_BY)
 from data_io import display_name, list_datasets, load_returns, r, write_web_data
-from forecast import ARCHIVE_FILE, archive_rows, make_days, read_archive, weather_index
+from forecast import ARCHIVE_FILE, archive_rows, make_days, move_index, read_archive, weather_bounds, weather_index
 from models import TRADING_DAYS, build_models
 
 BACKFILL_FILE = RESULT_DIR / "archive" / "backfill.csv"
@@ -55,8 +59,14 @@ def score(fc, df):
         ti = bi + int(row.k)
         bp = getattr(row, "big_pct", None)
         bp = BIG_MOVE_PCT if bp is None or not np.isfinite(bp) else float(bp)  # 古い記録は旧方式の固定値
+        if WEATHER_BY == "move" and bi >= 0:  # 予報した日の時点の「普段の標準偏差」で境界を決める（先の情報は使わない）
+            sd = float(df["ret"].iloc[max(0, bi - L + 1):bi + 1].std())
+            bounds = weather_bounds(row.key, sd)
+            pf = move_index(row.sigma_daily, bounds)
+        else:
+            bounds, pf = None, int(row.weather_idx)
         rec = {"s": 0 if row.source == "実予報" else 1, "b": row.base_date, "k": int(row.k), "bp": bp,
-               "sg": row.sigma_daily, "pf": int(row.weather_idx), "pp": row.percentile,
+               "sg": row.sigma_daily, "pf": pf, "pp": row.percentile,
                "pb": row.prob_big, "cb": row.prob_big_clim, "lo": row.range_low, "hi": row.range_high,
                "b9": r(getattr(row, "band95", None), 3),
                "t": row.target_date_est, "ar": None, "cl": None, "aw": None, "ap": None}
@@ -64,7 +74,7 @@ def score(fc, df):
             past = abs_ret[max(0, bi - L + 1):bi + 1]
             pct = float((past < abs_ret[ti]).mean() * 100)
             rec.update({"t": dates[ti].strftime("%Y-%m-%d"), "ar": r(float(df["ret"].iloc[ti]), 3),
-                        "cl": r(float(df["close"].iloc[ti]), 2), "aw": weather_index(pct), "ap": r(pct, 0)})
+                        "cl": r(float(df["close"].iloc[ti]), 2), "aw": move_index(abs_ret[ti] / 0.7979, bounds) if bounds else weather_index(pct), "ap": r(pct, 0)})
         out.append(rec)
     return out
 

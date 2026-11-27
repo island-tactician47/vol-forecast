@@ -67,7 +67,7 @@
           ${scoreCard("大荒れ予報のスキル", isFinite(skill) ? skill.toFixed(2) : "-",
              `予報の平均 ${mean(done.map(x => x.pb)).toFixed(0)}% → 実際 ${pct(mean(y))}。0より大きければ「平年並み」より役立つ`, isFinite(skill) ? skill > 0 : null)}
         </div>
-        <p class="note">天気の「実際」は、その日の|変動|が過去の|変動|の何%点だったかで決めています。1日の値動きは偶然でぶれるため、天気の的中率は低めに出ます。</p>
+        <p class="note">天気の「実際」は、その日の|変動|を予想と同じ物差し（1日の値動きの目安）に当てはめて決めています。1日の値動きは偶然でぶれるため、天気の的中率は低めに出ます。</p>
       </div>
       <div class="card"><h3 style="margin-top:0">予報した天気ごとの、実際の値動き</h3>
         <table><tr><th>予報した天気</th><th>件数</th><th>予想σ（平均）</th><th>実際の平均|変動|</th><th>大荒れ発生率</th></tr>${gRows}</table>

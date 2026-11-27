@@ -13,6 +13,11 @@
     const grade = k => (tk[k] ? `<span class="grade" title="直近${tk[k].n}日の${k}日先：予想レンジ的中${fmt(tk[k].range_hit, 0)}%（理想68%）／大外れ${fmt(tk[k].exceed, 1)}%（理想5%）">${tk[k].grade}</span>` : "");
     const warns = (it.warnings || []).map(w => `<div class="warnbox">⚠ ${w}</div>`).join("");
     const conf = tk["1"] ? `<div class="conf">信頼度 ${grade(1)}　直近${tk["1"].n}日の1日先：予想レンジ的中 <b>${fmt(tk["1"].range_hit, 0)}%</b>（理想68%）・大外れ <b>${fmt(tk["1"].exceed, 1)}%</b>（理想5%）</div>` : "";
+    const ws = it.weather_scale;
+    const wxScale = ws && ws.by === "move" && ws.bounds ? `<details><summary>天気の目安（この銘柄の1日の値動き）</summary>
+        <table><tr><th>天気</th><th>予想の1日の値動き</th></tr>
+        ${F.weather.map((w, i) => `<tr><td>${w.icon} ${w.label}</td><td>${i === 0 ? "" : `${fmt(ws.bounds[i - 1], 2)}% 〜 `}${i < ws.bounds.length ? `${fmt(ws.bounds[i], 2)}% 未満` : "それ以上"}</td></tr>`).join("")}</table>
+        <p class="note">この銘柄の普段の1日の標準偏差は ${fmt(ws.ret_sd, 2)}%（過去${F.lookback_years}年）。境界はその 0.6・0.75・0.9・1.15・1.6 倍です。</p></details>` : "";
     const tiers = d1.prob_tiers ? `<details><summary>大荒れの基準と確率（段階別）</summary>
         <table><tr><th>基準（普段の1日の標準偏差の何倍か）</th>${it.days.map(d => `<th>${d.date}</th>`).join("")}<th>平年</th></tr>
         ${d1.prob_tiers.map((tr, j) => `<tr><td>${tr.mult}倍（±${fmt(tr.pct, 2)}%超）</td>${it.days.map(d => `<td>${fmt(d.prob_tiers[j].prob, 0)}%</td>`).join("")}<td>${fmt(tr.clim, 0)}%</td></tr>`).join("")}</table>
@@ -58,7 +63,7 @@
         </div>
       </div>
       <div class="card"><h3 style="margin-top:0">週間予報（${F.horizon}営業日）</h3><div class="week">${days}</div>
-        ${tiers}
+        ${wxScale}${tiers}
         <p class="note">日付は、その市場の営業日（土日と祝日を除く）です。臨時の休場は考慮していません。</p></div>
       <div class="card">
         <h3 style="margin-top:0">チャート</h3>
