@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from config import (ALERT_PCT, BAND_COVERAGE, BIG_MOVE_MAIN, BIG_MOVE_PCT_BY_KEY, BIG_MOVE_TIERS, CANDLE_DAYS,
-                    HORIZON, LOOKBACK_YEARS, MAIN_MODEL, MAIN_MODEL_BY_KEY, MARKET_CAL, MIN_DAYS, RANGE_COVERAGE,
+                    FX_BAR_COMPLETE_UTC_HOUR, FX_KEYS, HORIZON, LOOKBACK_YEARS, MAIN_MODEL, MAIN_MODEL_BY_KEY, MARKET_CAL, MIN_DAYS, RANGE_COVERAGE,
                     REALIZED_WINDOW, RESULT_DIR, STALE_WARN, WARNING_PCT, TAIL_FLOOR, WEATHER)
 from config import EXOG
 from data_io import display_name, list_datasets, load_prices, load_returns, r, write_web_data
@@ -118,8 +118,16 @@ def make_days(main, df, path, fc, key=None):
     return days, lookback, sig_hist, tq[0][0]
 
 
-def expected_last_date(key, today=None):
-    """今日の前日以前で最も新しい営業日。日足の最終日がこれより古ければ、更新が1営業日以上抜けている。"""
+def expected_last_date(key, today=None, now_utc=None):
+    """今日の前日以前で最も新しい営業日。日足の最終日がこれより古ければ、更新が1営業日以上抜けている。
+
+    24時間取引の銘柄（FX_KEYS）は、データ側が UTC 22時より前の「今日」の足を使わないので（data_io.drop_incomplete）、
+    期待する日も「完成している最新の足」（UTC の日付。22時より前なら前日）にそろえる。
+    """
+    if key in FX_KEYS and today is None:
+        now = now_utc or datetime.utcnow()
+        done = now.date() if now.hour >= FX_BAR_COMPLETE_UTC_HOUR else now.date() - pd.Timedelta(days=1).to_pytimedelta()
+        return last_open_on_or_before(MARKET_CAL.get(key), pd.Timestamp(done))
     today = pd.Timestamp(today or datetime.now().date())
     return last_open_on_or_before(MARKET_CAL.get(key), today - pd.Timedelta(days=1))
 
